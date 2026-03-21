@@ -1,78 +1,214 @@
-# 虫群 · Tyranid Hive
+# Tyranid Hive
 
-> **我用 4 亿年前的虫群进化论，重新设计了 AI 多 Agent 协作架构。**
-> 结果发现，自然选择比人工规则更懂优胜劣汰。
+> **一个受虫巢神经体系启发的多 Agent 编排系统。**
+> 它不让 Agent "自由聊天"，而是让它们在分层治理、条件赛马和基因进化中完成任务。
 
-**虫群**是一个基于**泰伦虫族社会结构**的多 Agent 调度系统，具备神经进化能力、条件赛马机制和战功晋升体系。对外呈现 Discord 式多频道结构，对内以严格等级制运行。
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://python.org)
+[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+[![Built on](https://img.shields.io/badge/Built%20on-OpenClaw-orange)](https://github.com/OpenClaw)
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![License](https://img.shields.io/badge/License-MIT-green)
-![OpenClaw](https://img.shields.io/badge/Built%20on-OpenClaw-orange)
+[看 Demo](#demo) · [30 秒体验](#quick-start) · [架构](#architecture) · [核心机制](#core-mechanics) · [对比](#comparison)
 
 ---
 
-## 🚀 30 秒快速体验
+## What is Tyranid Hive?
+
+**Tyranid Hive** 是一个受泰伦虫族社会结构启发的多 Agent 编排框架。
+
+如果说普通 Multi-Agent 框架是"几个 Agent 自由讨论"，那 Tyranid Hive 更像一支被 Hive Mind 指挥的生物舰队：
+
+- **更稳**：复杂任务自动触发双路赛马，降低单 Agent 失误
+- **更可控**：分层调度与审查节点，支持人工插话和仲裁
+- **更可追溯**：关键节点、多频道日志、Trial 面板完整可见
+- **越跑越强**：经验沉淀为 Constitution / Playbook / Lessons，可复用、可进化
+
+```
+宿主(Host) 下令 → 主脑(Overmind) 决策 → 脑虫(Synapse) 调度 → 虫巢(Brood) 执行 → 单位(Unit) 作战
+                          │
+                          ├─ Conditional Trial（双路赛马）
+                          ├─ Audit / Approval（人工仲裁）
+                          └─ Gene Evolution（基因沉淀）
+```
+
+**一句话**：在 Hive 中，每个复杂任务都要先经过狩猎竞赛，胜者才能交付给宿主。
+
+---
+
+## Why a Hive?
+
+### 传统多 Agent 框架的问题
+
+| 问题 | 表现 |
+|------|------|
+| 单路径依赖 | 任务通常只走单一路径，失败高度依赖运气 |
+| 审核软化 | 审核与仲裁不是强制流程，质量不可控 |
+| 经验流失 | 教训常停留在上下文，而非可复用的基因 |
+
+### Tyranid Hive 的回答
+
+| 机制 | 实现 | 收益 |
+|------|------|------|
+| **分层治理** | Overmind → Synapse → Brood → Unit 硬分层 | 每层职责清晰，可定位、可干预 |
+| **条件赛马** | 复杂任务触发双路 Brood 并行竞争 | 用竞争降低单路径失误，用评分收敛质量 |
+| **基因进化** | Constitution / Playbook / Lessons 三层沉淀 | 经验写入基因，越跑越强 |
+| **多频道审计** | Trunk / Trial / Hive / Ledger 分层暴露 | 领导看主干，开发者看详情，审计看记录 |
+
+**核心主张**：对复杂任务来说，单路径不是效率，而是赌运气；Trial 的意义，就是让结果先经过狩猎，再交付给宿主。
+
+---
+
+## Demo
 
 ```bash
-# Docker 一键启动（即将到来）
+# 30 秒体验（Docker 即将到来）
 docker run -p 7892:7892 greyfield/hive-demo
 
 # 打开浏览器
 open http://localhost:7892
 ```
 
----
-
-## 📐 架构：四层神经等级
-
-| 层级 | 角色 | 英文名 | 职责 | 状态 |
-|------|------|--------|------|------|
-| **L3** | 🧠 主脑 | Overmind | 战略决策、复杂度判断、赛马仲裁、进化决策 | 系统唯一，永不沉睡 |
-| **L2** | 🎯 小主脑 | Submind | 战术调度、任务分解、Brood 协调 | 常驻/试验/休眠三态 |
-| **L1** | 🐛 工作组 | Brood | 任务隔离、内部协作、执行协调 | 动态组建 |
-| **L0** | ⚔️ 战斗单位 | Unit | 专业执行（设计虫/前端虫/后端虫）+ ToolAction | 基因注入 |
-
-### 三大核心机制
-
-**🔬 条件赛马（Conditional Trial）**
-- 满足 2 项以上触发：外部执行、多路径、高风险、历史失败率高
-- 固定两路 Brood 并行，硬门槛筛选 + 软评分收敛
-- 用户可在 Trial Panel 实时干预
-
-**🧬 基因分层进化（Gene Evolution）**
-- **Constitution（宪法）**：极稳定规则，直灌 Prompt
-- **Playbook（战术手册）**：领域经验，检索注入
-- **Lessons（近期教训）**：高频写入，30 天衰减
-
-**📊 多频道暴露（Multi-Channel）**
-- **Trunk（主干）**：仅 10-15 条关键节点，领导视角
-- **Trial/Hive/Ledger**：详情面板默认折叠，用户主动展开
+**你将看到**：
+- Trunk 频道：关键节点流，10-15 条核心事件
+- Trial 面板：双路赛马实时进度对比
+- Hive 视图：完整执行链与层级关系
+- Ledger：战功晋升与淘汰审计记录
 
 ---
 
-## 🆚 与 CrewAI / MetaGPT / AutoGen 对比
+## Architecture
 
-| 特性 | CrewAI | MetaGPT | AutoGen | **虫群** |
-|------|--------|---------|---------|----------|
-| **治理模式** | 现代团队 | 软件公司 | 平等协商 | **虫群进化** |
-| **审核机制** | 可选 | 可选 | 无 | **强制审查（脑虫专职）** |
-| **任务赛马** | ❌ | ❌ | ❌ | **✅ 条件双路赛马** |
-| **进化体系** | ❌ | ❌ | ❌ | **✅ 战功晋升/降级** |
-| **频道化** | ❌ | ❌ | ❌ | **✅ Discord 式多频道** |
-| **人机协作** | 弱 | 弱 | 中等 | **✅ 人类可插话/审批** |
-| **经验落盘** | 记忆 | 记忆 | 上下文 | **✅ 三层基因强制注入** |
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Host / 宿主                          │
+│                     （用户 / Greyfield）                      │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ submit_task()
+┌──────────────────────────▼──────────────────────────────────┐
+│                   Overmind / 主脑 (L3)                       │
+│              复杂度判断 · 赛马仲裁 · 进化决策                  │
+│              系统唯一，永不沉睡                                │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ dispatch()
+┌──────────────────────────▼──────────────────────────────────┐
+│                   Synapse / 脑虫 (L2)                        │
+│              战术调度 · 任务分解 · Brood 协调                 │
+│              常驻 / 试验 / 休眠 三态                          │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ create_brood()
+┌──────────────────────────▼──────────────────────────────────┐
+│                    Brood / 虫巢 (L1)                         │
+│              任务隔离 · 内部协作 · 执行协调                   │
+│              ├─ 单路执行                                     │
+│              └─ Trial：双路赛马（条件触发）                   │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ assign()
+┌──────────────────────────▼──────────────────────────────────┐
+│                    Unit / 单位 (L0)                          │
+│              专业执行 + ToolAction                           │
+│              枪虫(搜索) · 脑虫(分析) · 刀虫(编码)            │
+│              基因注入 · 战功积累 · 可晋升/淘汰                │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## 📦 安装
+## Core Mechanics
 
-### 前置条件
+### Conditional Trial（条件赛马）
 
-- Python 3.10+
-- OpenClaw 已安装
-- Greyfield 0.1.0+（作为宿主）
+当任务满足 2 项以上触发条件时，自动进入 Trial 模式：
 
-### 完整安装
+**触发条件**：
+- 需要外部执行（调用工具/API）
+- 存在多路径可能（多种实现方案）
+- 高风险操作（生产环境部署、数据变更）
+- 历史失败率高（同类任务曾失败）
+
+**执行流程**：
+```
+创建双路 Brood A / Brood B 并行执行
+        ↓
+硬门槛筛选（成功/约束/审查）
+        ↓
+软评分收敛（质量/速度/健壮性）
+        ↓
+选择胜者 → 更新战功 → 败者降级
+        ↓
+流式返回用户
+```
+
+**人工仲裁**：用户可在 Trial Panel 实时插话、审批或终止。
+
+---
+
+### Gene Evolution（基因进化）
+
+经验不是聊天记录，而是会被提炼、固化、继承和淘汰的基因。
+
+| 层级 | 英文名 | 稳定性 | 写入方式 | 用途 |
+|------|--------|--------|----------|------|
+| 宪法 | Constitution | 极高 | 手动维护 | 极稳定规则，直灌 Prompt |
+| 战术手册 | Playbook | 中 | 检索注入 | 领域经验，RAG 召回 |
+| 近期教训 | Lessons | 低 | 高频自动 | 30 天衰减，JSONL 追加 |
+
+**进化逻辑**：
+- Trial 胜者经验 → 提升相关 Playbook 权重
+- Trial 败者教训 → 写入 Lessons，提醒后续任务
+- 长期高战功 Unit → 升级为 Synapse（常驻小主脑）
+- 持续低战功 Unit → 休眠或淘汰（Purge）
+
+---
+
+### Multi-Channel Visibility（多频道暴露）
+
+Discord 式频道结构，不同角色看不同层级：
+
+| 频道 | 内容 | 默认 | 受众 |
+|------|------|------|------|
+| **Trunk** | 关键节点（10-15 条） | 展开 | 决策者、领导 |
+| **Trial** | 赛马详情、双路对比 | 折叠 | 开发者、调试者 |
+| **Hive** | 完整执行链、层级关系 | 折叠 | 架构师、审计 |
+| **Ledger** | 战功记录、晋升/淘汰 | 折叠 | 管理员、治理 |
+
+---
+
+### Human Arbitration（人工仲裁）
+
+虫群不是黑箱，人类可以随时干预：
+
+- **插话**：在任意节点插入人类指令
+- **审批**：关键操作需要人工确认
+- **终止**：可随时停止 Trial 或任务
+- **仲裁**：当双路赛马评分接近时，人类做最终裁决
+
+---
+
+## Comparison
+
+| 特性 | CrewAI | MetaGPT | AutoGen | **Tyranid Hive** |
+|------|--------|---------|---------|------------------|
+| **治理模式** | 现代团队 | 软件公司 | 平等协商 | **虫群等级制** |
+| **复杂任务处理** | 单路径 | 单路径 | 单路径 | **✅ 双路赛马** |
+| **审核机制** | 可选 | 可选 | 无 | **✅ 强制审查** |
+| **经验沉淀** | 记忆 | 记忆 | 上下文 | **✅ 三层基因** |
+| **人机协作** | 弱 | 弱 | 中等 | **✅ 可插话/审批** |
+| **过程可见性** | 日志 | 日志 | 日志 | **✅ 多频道面板** |
+| **进化机制** | ❌ | ❌ | ❌ | **✅ 战功晋升/淘汰** |
+
+**一句话区别**：普通框架让 Agent "协作"，Hive 让 Agent "在生存竞争中交付"。
+
+---
+
+## Quick Start
+
+### 30 秒体验（即将到来）
+
+```bash
+docker run -p 7892:7892 greyfield/hive-demo
+open http://localhost:7892
+```
+
+### 5 分钟本地安装
 
 ```bash
 # 1. 克隆仓库
@@ -90,18 +226,7 @@ plugins:
     mode: "auto"
 ```
 
-### Docker（即将到来）
-
-```bash
-docker pull greyfield/hive
-docker run -p 7892:7892 greyfield/hive
-```
-
----
-
-## 🎯 快速开始
-
-### 方式一：作为 Greyfield 插件
+### 作为 Greyfield 插件
 
 ```yaml
 # greyfield/conf.yaml
@@ -114,17 +239,20 @@ plugins:
       - name: "code-expert"
         domains: ["code", "debug"]
         model: "gpt-4o"
+      - name: "research-analyst"
+        domains: ["research", "analysis"]
+        model: "claude-sonnet-4-6"
 ```
 
 然后启动 Greyfield，说：
 > "帮我研究 Python 爬虫框架并写个示例"
 
 虫群会自动：
-1. 判断复杂度 → 触发 Hive 模式
+1. 主脑判断复杂度 → 触发 Hive 模式
 2. 调度枪虫（搜索框架）→ 脑虫（分析对比）→ 刀虫（写代码）
-3. 在 Trial Panel 展示过程
+3. 在 Trial Panel 展示双路赛马过程
 
-### 方式二：独立使用
+### 独立使用
 
 ```python
 from greyfield_hive import TyranidClaw, HiveConfig
@@ -133,19 +261,35 @@ hive = TyranidClaw(config=HiveConfig())
 
 # 提交任务
 async for event in hive.submit_task("帮我设计一个API"):
-    print(f"[{event.type}] {event.payload}")
+    print(f"[{event.channel}] {event.node}: {event.payload}")
 ```
 
 ---
 
-## 🏛️ 目录结构
+## When to Use
+
+- ✅ 复杂任务需要多 Agent 协作，且不能容忍单路径失败
+- ✅ 需要审计和追溯（关键业务、合规场景）
+- ✅ 希望系统越用越强（经验沉淀、持续进化）
+- ✅ 需要人机协作（人工插话、审批、仲裁）
+- ✅ 团队需要分层可见（领导看主干，开发看详情）
+
+## When NOT to Use
+
+- ❌ 简单任务，单 Agent 即可完成（ overhead 太高）
+- ❌ 需要实时响应（Trial 赛马会增加延迟）
+- ❌ 完全自动化的无人值守场景（需要人工审批节点）
+
+---
+
+## Project Structure
 
 ```
 tyranid-hive/
 ├── config/                     # 配置（文件驱动）
 │   ├── governance/
 │   │   └── tyranid.yaml        # 虫群治理模式定义
-│   ├── synapses/               # 小主脑配置
+│   ├── synapses/               # 脑虫配置
 │   │   ├── code-expert.yaml
 │   │   └── research-analyst.yaml
 │   └── genes/                  # 基因库（三层）
@@ -156,9 +300,9 @@ tyranid-hive/
 ├── src/greyfield_hive/         # 核心代码
 │   ├── core/                   # 四层实现
 │   │   ├── overmind.py         # L3 主脑
-│   │   ├── synapse.py          # L2 小主脑
-│   │   ├── brood.py            # L1 工作组
-│   │   └── unit.py             # L0 战斗单位
+│   │   ├── synapse.py          # L2 脑虫
+│   │   ├── brood.py            # L1 虫巢
+│   │   └── unit.py             # L0 单位
 │   ├── systems/                # 核心系统
 │   │   ├── evolution.py        # 进化引擎
 │   │   ├── trial_race.py       # 条件赛马
@@ -178,80 +322,43 @@ tyranid-hive/
 
 ---
 
-## 📊 任务流程
+## Roadmap
 
-```
-用户输入
-    ↓
-主脑分析（复杂度判断）
-    ↓
-├─ 简单 → 直接调度 Unit 执行
-└─ 复杂 → 创建小主脑 → 分解任务
-        ↓
-    创建 Brood（工作组）
-        ↓
-    ├─ 单路 → 顺序执行
-    └─ 赛马 → 固定两路并行
-            ↓
-        硬门槛筛选（成功/约束/审查）
-            ↓
-        软评分收敛（质量/速度/健壮性）
-            ↓
-        选择胜者 → 更新战功
-            ↓
-        流式返回用户
-```
-
-### 状态流转
-
-| 状态 | 说明 |
-|------|------|
-| 🟡 **queued** | 任务排队等待 |
-| 🔵 **analyzing** | 主脑分析中 |
-| 🟠 **planning** | 小主脑分解任务 |
-| 🟣 **racing** | 赛马进行中（两路） |
-| 🔴 **reviewing** | 脑虫审查中 |
-| 🟢 **completed** | 任务完成 |
-| ⚫ **failed** | 任务失败 |
+| 阶段 | 目标 | 时间 |
+|------|------|------|
+| Phase 1 | Core 四层架构 + Conditional Trial | Q1 2026 |
+| Phase 2 | Gene Evolution + Dashboard | Q2 2026 |
+| Phase 3 | PostgreSQL 迁移 + 规模化 | Q3 2026 |
 
 ---
 
-## 🎮 Dashboard 功能（即将到来）
+## License
 
-1. **主频道（Trunk）** — 关键节点流，领导视角
-2. **赛马面板** — 双路 Trial 实时进度对比
-3. **战功排行榜** — Unit 战功积累可视化
-4. **基因库** — Constitution/Playbook/Lessons 管理
-5. **小主脑状态** — 常驻/试验/休眠三态切换
-6. **Ledger** — 晋升记录、淘汰审计
-7. **频道浏览器** — 多频道切换、历史检索
+MIT License — 与 [OpenClaw](https://github.com/OpenClaw)、[Greyfield](https://github.com/zuiho-kai/greyfield)、[edict](https://github.com/cft0808/edict) 保持一致。
 
 ---
 
-## 🛠️ 技术栈
+## Terminology（术语表）
 
-- **Python**: 3.10+
-- **异步框架**: asyncio
-- **配置**: Pydantic + YAML
-- **存储**: SQLite（Phase 1-2）→ PostgreSQL（Phase 3+）
-- **向量检索**: ChromaDB
-- **宿主集成**: Greyfield（Electron + Live2D）
-- **框架**: OpenClaw
-
----
-
-## 📜 协议
-
-MIT License — 与 OpenClaw、Greyfield、edict 保持一致。
+| 术语 | 英文 | 含义 |
+|------|------|------|
+| 宿主 | Host | 用户或上层系统（如 Greyfield） |
+| 主脑 | Overmind | L3 战略决策层，系统唯一 |
+| 脑虫 | Synapse | L2 战术调度层，可常驻或动态 |
+| 虫巢 | Brood | L1 任务执行组，动态组建 |
+| 单位 | Unit | L0 专业执行者，有基因和战功 |
+| 赛马 | Trial | 双路竞争机制，复杂任务触发 |
+| 基因 | Gene | 经验沉淀的三层结构 |
+| 进化 | Evolution | 基因更新、战功晋升、淘汰清洗 |
 
 ---
 
-## 🙏 致谢
+**In the Hive, coordination is instinct. Reliability is earned by selection.**
+
+---
+
+## Acknowledgments
 
 - [OpenClaw](https://github.com/OpenClaw) — 框架基础
 - [edict](https://github.com/cft0808/edict) — 三省六部制灵感
 - [Greyfield](https://github.com/zuiho-kai/greyfield) — 宿主系统
-
----
-
-**用虫群的方式，让 AI 协作进化。**
