@@ -1,226 +1,257 @@
-# Greyfield Hive — 虫群核心 v0.2
+# 虫群 · Tyranid Hive
 
-> 泰伦虫族式多 Agent 调度系统，基于 OpenClaw 框架，适配 Greyfield 宿主。
-> 设计文档: [Greyfield Module E v2.2](../Greyfield/docs/design/module-e-hive/design-v2.md)
+> **我用 4 亿年前的虫群进化论，重新设计了 AI 多 Agent 协作架构。**
+> 结果发现，自然选择比人工规则更懂优胜劣汰。
 
-## 核心架构（v2.2 对齐）
+**虫群**是一个基于**泰伦虫族社会结构**的多 Agent 调度系统，具备神经进化能力、条件赛马机制和战功晋升体系。对外呈现 Discord 式多频道结构，对内以严格等级制运行。
 
-### 四层层级（精简后）
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
+![License](https://img.shields.io/badge/License-MIT-green)
+![OpenClaw](https://img.shields.io/badge/Built%20on-OpenClaw-orange)
 
+---
+
+## 🚀 30 秒快速体验
+
+```bash
+# Docker 一键启动（即将到来）
+docker run -p 7892:7892 greyfield/hive-demo
+
+# 打开浏览器
+open http://localhost:7892
 ```
-L3 Overmind（主脑）
-    └── 全局战略、复杂度判断、赛马仲裁、进化决策
 
-L2 Submind（小主脑）
-    └── 领域战术、任务分解、Brood协调、三态管理（常驻/试验/休眠）
+---
 
-L1 Brood（虫群工作组）
-    └── 任务隔离、内部协作、执行协调
+## 📐 架构：四层神经等级
 
-L0 Unit（战斗单位）
-    ├── Core：专业执行者（设计虫/前端虫/后端虫/审核虫）
-    ├── ToolAction：原子任务（原 Drone 层级并入）
-    └── GeneSeed：领域经验注入（Constitution + Playbook + Lessons）
-```
+| 层级 | 角色 | 英文名 | 职责 | 状态 |
+|------|------|--------|------|------|
+| **L3** | 🧠 主脑 | Overmind | 战略决策、复杂度判断、赛马仲裁、进化决策 | 系统唯一，永不沉睡 |
+| **L2** | 🎯 小主脑 | Submind | 战术调度、任务分解、Brood 协调 | 常驻/试验/休眠三态 |
+| **L1** | 🐛 工作组 | Brood | 任务隔离、内部协作、执行协调 | 动态组建 |
+| **L0** | ⚔️ 战斗单位 | Unit | 专业执行（设计虫/前端虫/后端虫）+ ToolAction | 基因注入 |
 
 ### 三大核心机制
 
-**1. 条件赛马（Conditional Trial Broods）**
-- 触发条件：外部执行 + 多路径 + 高风险 + 历史失败率高（满足2项以上）
-- 固定两路：不允许3路以上
-- 硬门槛：成功完成、不违反约束、通过审查
-- 软评分：质量40%、速度20%、健壮性15%、复用10%、成本-15%
+**🔬 条件赛马（Conditional Trial）**
+- 满足 2 项以上触发：外部执行、多路径、高风险、历史失败率高
+- 固定两路 Brood 并行，硬门槛筛选 + 软评分收敛
+- 用户可在 Trial Panel 实时干预
 
-**2. 基因分层注入（强制落盘）**
-- **Constitution（宪法）**：极稳定规则，直灌 prompt
+**🧬 基因分层进化（Gene Evolution）**
+- **Constitution（宪法）**：极稳定规则，直灌 Prompt
 - **Playbook（战术手册）**：领域经验，检索注入
-- **Lessons（近期教训）**：高频写入，30天衰减
+- **Lessons（近期教训）**：高频写入，30 天衰减
 
-**3. 消息持久化与总结（Cat Cafe 式）**
-- 所有消息实时持久化到 SQLite
-- 事件驱动总结（任务完成、分支淘汰、用户插话）
-- 原文保留，支持检索和"展开查看"
-
-### 多频道结构（Discord 式）
-
-```
-左侧频道栏          中间 Trunk（主干）              右侧详情面板（折叠）
-───────────        ───────────────────────         ───────────────────
-• 主频道（Trunk）    主脑: 分析需求，复杂度: 中等...   [Trial Panel]（展开）
-• Hive: 爬虫任务     小主脑-A: 方案A，预计95%        - 分支A进度
-• Trial: task-001    小主脑-B: 方案B，预计98%        - 分支B进度
-• Ledger             主脑: 选择方案B...              [Hive Channel]
-                                                             - 资源状态
-                                                             [Ledger View]
-                                                             - 战功记录
-```
-
+**📊 多频道暴露（Multi-Channel）**
 - **Trunk（主干）**：仅 10-15 条关键节点，领导视角
-- **右侧详情面板**：默认折叠，用户主动展开
+- **Trial/Hive/Ledger**：详情面板默认折叠，用户主动展开
 
-## 目录结构（v2.2 对齐）
+---
 
-```
-greyfield-hive/
-├── config/
-│   ├── governance/
-│   │   └── tyranid.yaml          # 治理模式定义（4层结构）
-│   ├── synapses/                 # 小主脑配置（文件驱动）
-│   │   ├── code-expert.yaml
-│   │   └── research-analyst.yaml
-│   └── genes/                    # 基因库（三层结构）
-│       ├── constitution/         # 宪法（极稳定规则）
-│       │   └── baseline.yaml
-│       ├── playbook/             # 战术手册（领域经验）
-│       │   ├── frontend.yaml
-│       │   ├── backend.yaml
-│       │   └── designer.yaml
-│       └── lessons/              # 近期教训（JSONL，高频写入）
-│           └── 2026-03-21.jsonl
-│
-├── src/greyfield_hive/
-│   ├── __init__.py
-│   ├── claw.py                   # TyranidClaw（主脑）
-│   ├── config.py                 # 配置模型
-│   │
-│   ├── core/                     # 核心层级实现
-│   │   ├── overmind.py           # L3 主脑
-│   │   ├── synapse.py            # L2 小主脑（三态管理）
-│   │   ├── brood.py              # L1 工作组
-│   │   └── unit.py               # L0 战斗单位（含 ToolAction）
-│   │
-│   ├── systems/                  # 核心系统
-│   │   ├── evolution.py          # 进化引擎（战功/晋升）
-│   │   ├── trial_race.py         # 条件赛马
-│   │   ├── gene_seed.py          # 基因种子（三层加载）
-│   │   ├── synapse_net.py        # 虫巢意识网
-│   │   └── message_store.py      # 消息持久化（Cat Cafe 式）
-│   │
-│   ├── units/                    # 专业 Unit 类型
-│   │   ├── designer.py           # 设计虫
-│   │   ├── frontend.py           # 前端虫
-│   │   ├── backend.py            # 后端虫
-│   │   └── reviewer.py           # 审核虫
-│   │
-│   └── adapters/
-│       ├── openclaw.py           # OpenClaw 框架适配
-│       └── greyfield.py          # Greyfield 宿主适配
-│
-├── data/                         # 运行时数据
-│   ├── greyfield-hive.db         # SQLite（消息、战功）
-│   └── lessons/                  # JSONL 高频写入
-│
-├── tests/
-└── docs/
+## 🆚 与 CrewAI / MetaGPT / AutoGen 对比
+
+| 特性 | CrewAI | MetaGPT | AutoGen | **虫群** |
+|------|--------|---------|---------|----------|
+| **治理模式** | 现代团队 | 软件公司 | 平等协商 | **虫群进化** |
+| **审核机制** | 可选 | 可选 | 无 | **强制审查（脑虫专职）** |
+| **任务赛马** | ❌ | ❌ | ❌ | **✅ 条件双路赛马** |
+| **进化体系** | ❌ | ❌ | ❌ | **✅ 战功晋升/降级** |
+| **频道化** | ❌ | ❌ | ❌ | **✅ Discord 式多频道** |
+| **人机协作** | 弱 | 弱 | 中等 | **✅ 人类可插话/审批** |
+| **经验落盘** | 记忆 | 记忆 | 上下文 | **✅ 三层基因强制注入** |
+
+---
+
+## 📦 安装
+
+### 前置条件
+
+- Python 3.10+
+- OpenClaw 已安装
+- Greyfield 0.1.0+（作为宿主）
+
+### 完整安装
+
+```bash
+# 1. 克隆仓库
+git clone https://github.com/zuiho-kai/tyranid-hive.git
+cd tyranid-hive
+
+# 2. 安装依赖
+pip install -e ".[dev]"
+
+# 3. 配置（在 Greyfield 中启用）
+# greyfield/conf.yaml
+plugins:
+  hive:
+    enabled: true
+    mode: "auto"
 ```
 
-## 与 Greyfield 集成
+### Docker（即将到来）
+
+```bash
+docker pull greyfield/hive
+docker run -p 7892:7892 greyfield/hive
+```
+
+---
+
+## 🎯 快速开始
+
+### 方式一：作为 Greyfield 插件
 
 ```yaml
 # greyfield/conf.yaml
 plugins:
   hive:
     enabled: true
-    mode: "auto"                    # auto | simple | hive
-
-    overmind:
-      model: "claude-sonnet-4-20250514"
-      complexity_threshold: 0.7     # 触发 Hive 的阈值
+    mode: "auto"  # auto | simple | hive
 
     synapses:
       - name: "code-expert"
         domains: ["code", "debug"]
         model: "gpt-4o"
-        state: "resident"           # resident | trial | dormant
-
-    storage:
-      phase: "sqlite"               # sqlite | postgres
-      path: "data/hive.db"
-
-    channels:
-      expose_to_user: true
-      default_collapsed: true       # 详情面板默认折叠
-
-    evolution:
-      enabled: false                # Phase E3 开启
 ```
 
-## 关键实现（v2.2 对齐）
+然后启动 Greyfield，说：
+> "帮我研究 Python 爬虫框架并写个示例"
 
-### 1. 基因强制加载（启动时）
+虫群会自动：
+1. 判断复杂度 → 触发 Hive 模式
+2. 调度枪虫（搜索框架）→ 脑虫（分析对比）→ 刀虫（写代码）
+3. 在 Trial Panel 展示过程
+
+### 方式二：独立使用
 
 ```python
-class Unit:
-    def __init__(self, unit_type: str, domain: str):
-        # 强制加载三层基因
-        self.constitution = GeneSeed.load_constitution()      # 直灌
-        self.playbook = GeneSeed.load_playbook(domain)        # 检索
-        self.lessons = GeneSeed.load_lessons(domain, days=30) # 检索
+from greyfield_hive import TyranidClaw, HiveConfig
 
-        # 组装系统提示词
-        self.system_prompt = self._assemble_prompt()
+hive = TyranidClaw(config=HiveConfig())
+
+# 提交任务
+async for event in hive.submit_task("帮我设计一个API"):
+    print(f"[{event.type}] {event.payload}")
 ```
 
-### 2. 条件赛马（固定两路）
+---
 
-```python
-class Overmind:
-    def should_trigger_trial(self, task: Task) -> bool:
-        """判断是否触发赛马（满足2项以上）"""
-        conditions = [
-            task.requires_external_execution(),      # 需要外部执行
-            task.has_multiple_paths(),               # 存在多路径
-            task.is_high_risk(),                     # 高风险
-            task.recent_failure_rate() > 0.3,        # 历史失败率高
-        ]
-        return sum(conditions) >= 2
+## 🏛️ 目录结构
 
-    def create_trial_broods(self, task: Task) -> Tuple[Brood, Brood]:
-        """固定创建两路 Brood"""
-        return (Brood(strategy="A"), Brood(strategy="B"))
+```
+tyranid-hive/
+├── config/                     # 配置（文件驱动）
+│   ├── governance/
+│   │   └── tyranid.yaml        # 虫群治理模式定义
+│   ├── synapses/               # 小主脑配置
+│   │   ├── code-expert.yaml
+│   │   └── research-analyst.yaml
+│   └── genes/                  # 基因库（三层）
+│       ├── constitution/       # 宪法（极稳定）
+│       ├── playbook/           # 战术手册（领域经验）
+│       └── lessons/            # 近期教训（JSONL）
+│
+├── src/greyfield_hive/         # 核心代码
+│   ├── core/                   # 四层实现
+│   │   ├── overmind.py         # L3 主脑
+│   │   ├── synapse.py          # L2 小主脑
+│   │   ├── brood.py            # L1 工作组
+│   │   └── unit.py             # L0 战斗单位
+│   ├── systems/                # 核心系统
+│   │   ├── evolution.py        # 进化引擎
+│   │   ├── trial_race.py       # 条件赛马
+│   │   ├── gene_seed.py        # 基因种子
+│   │   └── message_store.py    # 消息持久化
+│   └── adapters/
+│       ├── openclaw.py         # OpenClaw 适配
+│       └── greyfield.py        # Greyfield 适配
+│
+├── data/                       # 运行时数据
+│   ├── greyfield-hive.db       # SQLite
+│   └── lessons/                # JSONL
+│
+├── tests/                      # 测试
+└── docs/                       # 文档
 ```
 
-### 3. 消息存储（事件驱动总结）
+---
 
-```python
-class MessageStore:
-    """三层存储"""
+## 📊 任务流程
 
-    async def save_message(self, msg: Message):
-        # 1. 原文写入 SQLite（实时）
-        await self.db.insert("messages", msg)
-
-    async def generate_summary(self, event: Event):
-        # 2. 事件驱动生成摘要（非定时）
-        if event.type in ["brood_complete", "trial_eliminated", "user_intervention"]:
-            summary = await self.summarize(event.context)
-            await self.vector_store.insert("summaries", summary)
+```
+用户输入
+    ↓
+主脑分析（复杂度判断）
+    ↓
+├─ 简单 → 直接调度 Unit 执行
+└─ 复杂 → 创建小主脑 → 分解任务
+        ↓
+    创建 Brood（工作组）
+        ↓
+    ├─ 单路 → 顺序执行
+    └─ 赛马 → 固定两路并行
+            ↓
+        硬门槛筛选（成功/约束/审查）
+            ↓
+        软评分收敛（质量/速度/健壮性）
+            ↓
+        选择胜者 → 更新战功
+            ↓
+        流式返回用户
 ```
 
-## 安装
+### 状态流转
 
-```bash
-# 安装依赖
-pip install -e ".[dev]"
+| 状态 | 说明 |
+|------|------|
+| 🟡 **queued** | 任务排队等待 |
+| 🔵 **analyzing** | 主脑分析中 |
+| 🟠 **planning** | 小主脑分解任务 |
+| 🟣 **racing** | 赛马进行中（两路） |
+| 🔴 **reviewing** | 脑虫审查中 |
+| 🟢 **completed** | 任务完成 |
+| ⚫ **failed** | 任务失败 |
 
-# 运行测试
-pytest tests/
+---
 
-# 集成到 Greyfield
-# 1. 在 greyfield/conf.yaml 中启用 plugins.hive
-# 2. 确保 greyfield-hive 在 Python 路径中
-```
+## 🎮 Dashboard 功能（即将到来）
 
-## Phase 计划（与 Module E 对齐）
+1. **主频道（Trunk）** — 关键节点流，领导视角
+2. **赛马面板** — 双路 Trial 实时进度对比
+3. **战功排行榜** — Unit 战功积累可视化
+4. **基因库** — Constitution/Playbook/Lessons 管理
+5. **小主脑状态** — 常驻/试验/休眠三态切换
+6. **Ledger** — 晋升记录、淘汰审计
+7. **频道浏览器** — 多频道切换、历史检索
 
-| Phase | 目标 | 关键交付 |
-|-------|------|---------|
-| **E0** | 接口锁定 | DecisionRuntime 接口、4层抽象、基因加载接口 |
-| **E1** | 单路跑通 | Overmind→Submind→Brood→Unit 链路、SQLite消息存储 |
-| **E2** | 条件赛马 | 固定两路赛马、硬门槛筛选、软评分收敛 |
-| **E3** | 基因库 + 强制落盘 | Constitution/Playbook/Lessons 三层、30天衰减、战功系统 |
-| **E4** | Dashboard + PG | Web管理界面、PostgreSQL迁移 |
+---
 
-## 协议
+## 🛠️ 技术栈
 
-MIT License — 与 OpenClaw、Greyfield 保持一致。
+- **Python**: 3.10+
+- **异步框架**: asyncio
+- **配置**: Pydantic + YAML
+- **存储**: SQLite（Phase 1-2）→ PostgreSQL（Phase 3+）
+- **向量检索**: ChromaDB
+- **宿主集成**: Greyfield（Electron + Live2D）
+- **框架**: OpenClaw
+
+---
+
+## 📜 协议
+
+MIT License — 与 OpenClaw、Greyfield、edict 保持一致。
+
+---
+
+## 🙏 致谢
+
+- [OpenClaw](https://github.com/OpenClaw) — 框架基础
+- [edict](https://github.com/cft0808/edict) — 三省六部制灵感
+- [Greyfield](https://github.com/zuiho-kai/greyfield) — 宿主系统
+
+---
+
+**用虫群的方式，让 AI 协作进化。**
