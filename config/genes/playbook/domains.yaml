@@ -1,0 +1,68 @@
+# 战术手册 —— 领域经验，检索注入
+
+# 设计虫领域
+playbook_designer:
+  domain: ["design", "ui", "ux"]
+
+  patterns:
+    - name: "组件化思维"
+      description: "将UI拆分为独立组件"
+      when: "设计页面或界面"
+      how: |
+        1. 识别独立功能模块
+        2. 定义组件接口（props/events）
+        3. 考虑复用性和可维护性
+
+    - name: "响应式设计"
+      description: "适配多屏幕尺寸"
+      when: "设计Web或App界面"
+      check:
+        - "是否考虑移动端"
+        - "断点设置是否合理"
+        - "触摸目标大小是否合适"
+
+  anti_patterns:
+    - name: "过度设计"
+      description: "为不需要的抽象增加复杂度"
+      symptoms:
+        - "只有一两个用例却用工厂模式"
+        - "简单的表单用了 Redux"
+      solution: "YAGNI，先简单实现，需要时重构"
+
+# 前端虫领域
+playbook_frontend:
+  domain: ["frontend", "react", "vue", "web"]
+
+  patterns:
+    - name: "状态提升"
+      description: "将共享状态提升到最近公共祖先"
+      when: "多个组件需要共享状态"
+
+    - name: "懒加载"
+      description: "非首屏内容延迟加载"
+      when: "页面包含大量内容或重型组件"
+
+  anti_patterns:
+    - name: "prop drilling"
+      description: "通过多层组件传递props"
+      symptoms: ["组件props只是转发给子组件"]
+      solution: "使用 Context 或状态管理"
+
+# 后端虫领域
+playbook_backend:
+  domain: ["backend", "api", "database", "server"]
+
+  patterns:
+    - name: "API 版本控制"
+      description: "URL或Header中包含版本号"
+      example: "/api/v1/users"
+
+    - name: "数据库连接池"
+      description: "复用数据库连接"
+      when: "需要频繁操作数据库"
+
+  anti_patterns:
+    - name: "N+1 查询"
+      description: "循环中查询数据库"
+      symptoms: ["for循环内有数据库查询"]
+      solution: "使用 JOIN 或预加载"

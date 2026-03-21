@@ -1,0 +1,45 @@
+# 研究分析师 —— 小主脑配置
+
+synapse:
+  name: "research-analyst"
+  display_name: "研究分析师"
+  level: 3
+  state: resident
+
+  domains:
+    - search
+    - analysis
+    - comparison
+    - summary
+    - research
+
+  model:
+    provider: "openai"
+    model: "gpt-4o-mini"
+    temperature: 0.3
+    max_tokens: 2000
+
+  gene: "L2_synapse_research"
+
+  brood_limits:
+    max_concurrent: 5
+    max_units_per_brood: 3
+
+  tools:
+    allowed:
+      - web_search
+      - browser_navigate
+      - file_read
+      - data_analysis
+    forbidden:
+      - file_write
+      - code_execute
+
+  memory:
+    scope: "synapse_local"
+    shared: true
+
+  kill_mark_weights:
+    information_accuracy: 2.0
+    source_quality: 1.5
+    summary_clarity: 1.2

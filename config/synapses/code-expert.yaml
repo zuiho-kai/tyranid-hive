@@ -1,0 +1,53 @@
+# 代码专家 —— 小主脑配置
+
+synapse:
+  name: "code-expert"
+  display_name: "代码专家"
+  level: 3
+  state: resident  # resident | trial | dormant
+
+  # 领域定义
+  domains:
+    - code
+    - debug
+    - script
+    - review
+    - refactor
+
+  # 模型配置
+  model:
+    provider: "openai"
+    model: "gpt-4o"
+    temperature: 0.2
+    max_tokens: 4000
+
+  # 基因模板（引用 config/genes/ 下的文件）
+  gene: "L2_synapse_code"
+
+  # 工作组限制
+  brood_limits:
+    max_concurrent: 3
+    max_units_per_brood: 5
+
+  # 工具权限
+  tools:
+    allowed:
+      - code_execute
+      - file_read
+      - file_write
+      - browser_navigate
+      - search
+    forbidden:
+      - system_shell
+      - network_exploit
+
+  # 记忆配置
+  memory:
+    scope: "synapse_local"  # 小主脑本地记忆
+    shared: true  # 是否贡献给虫巢意识网
+
+  # 战功权重（此小主脑的特殊权重）
+  kill_mark_weights:
+    code_quality: 2.0
+    bug_fix: 1.5
+    performance: 1.2

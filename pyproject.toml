@@ -1,0 +1,89 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "greyfield-hive"
+version = "0.1.0"
+description = "Tyranid Hive multi-agent system for Greyfield, built on OpenClaw"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Greyfield Team"}
+]
+keywords = ["agent", "multi-agent", "hive", "tyranid", "greyfield", "openclaw"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    # OpenClaw 框架（待发布，暂时本地依赖）
+    # "openclaw>=0.1.0",
+
+    # 核心依赖
+    "pydantic>=2.0.0",
+    "loguru>=0.7.0",
+    "pyyaml>=6.0",
+    "aiofiles>=23.0.0",
+
+    # 异步
+    "asyncio-mqtt>=0.16.0",
+
+    # 数据
+    "sqlalchemy>=2.0.0",
+    "aiosqlite>=0.19.0",
+
+    # 工具
+    "typing-extensions>=4.5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+]
+
+# Greyfield 集成测试
+integration = [
+    "greyfield>=0.1.0",
+    "websockets>=12.0",
+    "fastapi>=0.104.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/greyfield-hive"
+Repository = "https://github.com/yourusername/greyfield-hive"
+Documentation = "https://github.com/yourusername/greyfield-hive/tree/main/docs"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/greyfield_hive"]
+
+[tool.black]
+line-length = 100
+target-version = ['py310']
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

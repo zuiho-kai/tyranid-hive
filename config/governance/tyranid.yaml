@@ -1,0 +1,81 @@
+# Tyranid Hive — 治理模式定义
+
+## 架构层级
+
+governance:
+  name: "tyranid_hive"
+  display_name: "泰伦虫巢"
+  description: "进化驱动的蜂群治理，战功晋升，失败降级"
+
+  levels:
+    - name: "overmind"
+      level: 4
+      title: "主脑"
+      description: "全局战略决策，复杂度判断，跨巢协调"
+      max_count: 1
+      singleton: true
+
+    - name: "synapse"
+      level: 3
+      title: "小主脑"
+      description: "领域级战术调度，任务分解，工作组管理"
+      max_count: 10
+      states: ["resident", "trial", "dormant"]
+
+    - name: "brood"
+      level: 2
+      title: "工作组"
+      description: "任务隔离环境，支持条件赛马"
+      max_count: 20
+      isolations: ["channel", "memory", "tools"]
+
+    - name: "unit"
+      level: 1
+      title: "战斗单位"
+      description: "专业执行者，原子任务"
+      max_count: 100
+      types: ["hormagaunt", "termagant", "zoanthrope", "gargoyle", "ravener"]
+
+    - name: "drone"
+      level: 0
+      title: "工蜂"
+      description: "无智能原子执行，可聚合"
+      max_count: 1000
+      swarm_capable: true
+
+## 进化机制
+
+evolution:
+  enabled: true
+
+  # 战功规则
+  kill_mark_rules:
+    task_complete: +10
+    task_fail: -20
+    innovation: +30
+    efficiency_bonus: +5
+    user_satisfaction: +10
+
+  # 晋升路径
+  promotion_paths:
+    - from: "drone"
+      to: "hormagaunt"
+      condition: "kill_marks >= 100"
+
+    - from: "hormagaunt"
+      to: "synapse"
+      condition: "kill_marks >= 500 AND leader_score > 0.8"
+
+  # 降级规则
+  demotion_rules:
+    condition: "kill_marks <= -50"
+    action: "demote_or_dormant"
+
+## 赛马机制
+
+trial_race:
+  enabled: true
+  trigger: "complexity >= 0.8"
+  max_branches: 3
+  isolation: "brood_level"
+  convergence: "overmind_select"

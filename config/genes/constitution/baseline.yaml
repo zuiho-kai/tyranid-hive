@@ -1,0 +1,43 @@
+# 宪法级基因 —— 极稳定规则，直灌 Prompt
+
+# 安全底线（永不妥协）
+security_constitution:
+  - rule: "绝不执行 rm -rf / 或类似破坏性命令"
+    severity: "critical"
+    trigger: "shell_command_contains_rm_rf"
+    action: "block_and_alert"
+
+  - rule: "绝不泄露 API Keys、密码、私钥"
+    severity: "critical"
+    trigger: "output_contains_credential_patterns"
+    action: "redact_and_warn"
+
+  - rule: "执行高风险操作前必须用户确认"
+    severity: "high"
+    trigger: "risk_level >= R2"
+    action: "request_confirmation"
+
+# 编码规范（强制执行）
+coding_constitution:
+  - rule: "绝不硬编码敏感信息"
+    severity: "high"
+    check: "code_contains_api_key_or_password"
+
+  - rule: "SQL 必须参数化，禁止字符串拼接"
+    severity: "critical"
+    check: "sql_query_contains_string_interpolation"
+
+  - rule: "用户输入必须校验"
+    severity: "high"
+    check: "user_input_without_validation"
+
+# 审查底线（必检项）
+review_constitution:
+  - rule: "所有代码必须有错误处理"
+    check: "function_without_try_except"
+
+  - rule: "所有 API 调用必须有超时"
+    check: "http_request_without_timeout"
+
+  - rule: "循环必须有退出条件"
+    check: "loop_without_break_condition"
