@@ -208,6 +208,17 @@ class TaskService:
         await self.db.refresh(task)
         return task
 
+    async def patch_task(self, task_id: str, **fields) -> Task:
+        """部分更新任务字段，只改传入的字段"""
+        task = await self.get_by_id(task_id)   # raises TaskNotFoundError if missing
+        allowed = {"title", "description", "priority"}
+        for k, v in fields.items():
+            if k in allowed and v is not None:
+                setattr(task, k, v)
+        await self.db.commit()
+        await self.db.refresh(task)
+        return task
+
     async def stats(self) -> dict:
         """返回各状态任务计数 + 汇总"""
         result = await self.db.execute(

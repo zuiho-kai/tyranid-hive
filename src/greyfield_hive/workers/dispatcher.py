@@ -66,6 +66,10 @@ class DispatchWorker:
         # OpenClaw 工作目录
         self._claw_dir = Path(os.environ.get("HIVE_CLAW_DIR", "."))
 
+    @property
+    def running(self) -> bool:
+        return self._running
+
     async def start(self) -> None:
         self._running = True
         self._q = self.bus.subscribe(TOPIC_TASK_DISPATCH)

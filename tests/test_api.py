@@ -29,7 +29,12 @@ async def client():
 async def test_health(client):
     resp = await client.get("/health")
     assert resp.status_code == 200
-    assert resp.json()["status"] == "synapse_active"
+    data = resp.json()
+    # 测试环境 workers 不启动，status 可能是 degraded；但结构必须完整
+    assert data["service"] == "tyranid-hive"
+    assert data["status"] in ("synapse_active", "degraded")
+    assert data["db"] in ("ok", "error")
+    assert data["workers"] in ("ok", "stopped")
 
 
 @pytest.mark.asyncio

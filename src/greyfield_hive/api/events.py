@@ -12,7 +12,7 @@ router = APIRouter(prefix="/api/events", tags=["events"])
 
 def _event_to_dict(ev: HiveEvent) -> dict:
     return {
-        "id":         ev.id,
+        "event_id":   ev.id,       # 与 WS BusEvent.event_id 对齐
         "trace_id":   ev.trace_id,
         "task_id":    ev.task_id,
         "topic":      ev.topic,

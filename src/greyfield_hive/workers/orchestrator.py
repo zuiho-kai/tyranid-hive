@@ -32,6 +32,10 @@ class OrchestratorWorker:
         self._running = False
         self._queues: list[asyncio.Queue] = []
 
+    @property
+    def running(self) -> bool:
+        return self._running
+
     async def start(self) -> None:
         self._running = True
         logger.info("[Orchestrator] 启动")

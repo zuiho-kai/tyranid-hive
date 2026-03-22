@@ -86,10 +86,30 @@ app.include_router(ws_router)
 
 @app.get("/health")
 async def health():
+    from greyfield_hive.db import engine
+    from sqlalchemy import text
+
+    # DB 连通性探针
+    db_ok = False
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        db_ok = True
+    except Exception:
+        pass
+
+    workers_ok = (
+        _orchestrator is not None and _orchestrator.running
+        and _dispatcher is not None and _dispatcher.running
+    )
+
+    status = "synapse_active" if (db_ok and workers_ok) else "degraded"
     return {
-        "status": "synapse_active",
-        "service": "tyranid-hive",
-        "version": "0.1.0",
+        "status":   status,
+        "service":  "tyranid-hive",
+        "version":  "0.1.0",
+        "db":       "ok" if db_ok else "error",
+        "workers":  "ok" if workers_ok else "stopped",
     }
 
 

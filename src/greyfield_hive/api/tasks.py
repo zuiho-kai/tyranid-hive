@@ -42,6 +42,12 @@ class TodosRequest(BaseModel):
     todos: list[dict]
 
 
+class PatchTaskRequest(BaseModel):
+    title:       Optional[str] = None
+    description: Optional[str] = None
+    priority:    Optional[str] = None
+
+
 def _task_to_dict(task: Task) -> dict:
     return {
         "id":               task.id,
@@ -145,6 +151,17 @@ async def add_progress(task_id: str, body: ProgressRequest, db=Depends(get_db)):
     svc = TaskService(db)
     try:
         task = await svc.add_progress(task_id, body.agent, body.content)
+    except TaskNotFoundError:
+        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+    return _task_to_dict(task)
+
+
+@router.patch("/{task_id}")
+async def patch_task(task_id: str, body: PatchTaskRequest, db=Depends(get_db)):
+    """部分更新任务字段（title / description / priority）"""
+    svc = TaskService(db)
+    try:
+        task = await svc.patch_task(task_id, **body.model_dump(exclude_none=True))
     except TaskNotFoundError:
         raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
     return _task_to_dict(task)

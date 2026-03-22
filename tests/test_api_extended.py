@@ -226,5 +226,49 @@ async def test_events_after_task_create(client):
     assert resp.status_code == 200
     events = resp.json()
     assert len(events) >= 1
+    # HTTP events API 与 WS BusEvent 对齐：使用 event_id 字段
+    assert "event_id" in events[0]
     topics = [e["topic"] for e in events]
     assert any("task" in t for t in topics)
+
+
+# ── PATCH /api/tasks/{id} ──────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_patch_task_title(client):
+    create = await client.post("/api/tasks", json={"title": "原始标题", "priority": "normal"})
+    task_id = create.json()["id"]
+    resp = await client.patch(f"/api/tasks/{task_id}", json={"title": "更新后标题"})
+    assert resp.status_code == 200
+    assert resp.json()["title"] == "更新后标题"
+    assert resp.json()["priority"] == "normal"  # 未更新的字段保持不变
+
+
+@pytest.mark.asyncio
+async def test_patch_task_priority(client):
+    create = await client.post("/api/tasks", json={"title": "战团", "priority": "normal"})
+    task_id = create.json()["id"]
+    resp = await client.patch(f"/api/tasks/{task_id}", json={"priority": "critical"})
+    assert resp.status_code == 200
+    assert resp.json()["priority"] == "critical"
+    assert resp.json()["title"] == "战团"  # title 未变
+
+
+@pytest.mark.asyncio
+async def test_patch_task_not_found(client):
+    resp = await client.patch("/api/tasks/NO-SUCH-TASK", json={"title": "x"})
+    assert resp.status_code == 404
+
+
+# ── events 字段对齐 ────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_events_have_event_id_not_id(client):
+    """HTTP events API 必须返回 event_id（与 WS BusEvent 字段对齐）"""
+    await client.post("/api/tasks", json={"title": "事件对齐测试"})
+    resp = await client.get("/api/events")
+    events = resp.json()
+    assert len(events) >= 1
+    for e in events:
+        assert "event_id" in e
+        assert "id" not in e   # 旧字段不应出现
