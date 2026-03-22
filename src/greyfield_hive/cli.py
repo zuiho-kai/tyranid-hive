@@ -9,6 +9,9 @@
   hive tasks transition BT-xxx …      流转状态
   hive tasks cancel BT-xxx            取消任务
   hive tasks children BT-xxx          列出子任务
+  hive tasks dispatch BT-xxx --synapse=code-expert  派发任务
+  hive tasks subtask BT-xxx --title "…"             创建子任务
+  hive tasks blocked BT-xxx           检查依赖阻塞状态
   hive synapses                       列出小主脑
   hive fitness leaderboard            适存度排行榜
   hive fitness show <synapse_id>      小主脑适存度详情
@@ -47,10 +50,12 @@ tasks_app     = typer.Typer(help="任务管理")
 fitness_app   = typer.Typer(help="适存度排行榜")
 lessons_app   = typer.Typer(help="经验教训基因库")
 playbooks_app = typer.Typer(help="作战手册管理")
+genes_app     = typer.Typer(help="基因库整体导出/导入")
 app.add_typer(tasks_app,     name="tasks")
 app.add_typer(fitness_app,   name="fitness")
 app.add_typer(lessons_app,   name="lessons")
 app.add_typer(playbooks_app, name="playbooks")
+app.add_typer(genes_app,     name="genes")
 
 console = Console()
 err_console = Console(stderr=True, style="bold red")
@@ -449,6 +454,59 @@ def tasks_children(
     except httpx.HTTPStatusError as e:
         err_console.print(f"API 错误 {e.response.status_code}：{e.response.text[:200]}")
         raise typer.Exit(1)
+
+
+@tasks_app.command("dispatch", help="派发任务给指定小主脑")
+def tasks_dispatch(
+    task_id: str = typer.Argument(..., help="任务 ID"),
+    synapse: str = typer.Option("overmind", "--synapse", "-s", help="小主脑 ID，传 'auto' 自动选最优"),
+    message: str = typer.Option("", "--message", "-m", help="附加消息/指令"),
+    api:     str = api_url_option,
+) -> None:
+    """向事件总线发布 task.dispatch 事件，由对应小主脑处理"""
+    data = _post(f"/api/tasks/{task_id}/dispatch", {"synapse": synapse, "message": message})
+    actual_synapse = data.get("synapse", synapse)
+    console.print(
+        f"[green]✓[/green] 任务 [bold]{task_id}[/bold] 已派发给 "
+        f"[cyan]{actual_synapse}[/cyan]"
+    )
+
+
+@tasks_app.command("subtask", help="创建子任务")
+def tasks_subtask(
+    parent_id:  str            = typer.Argument(..., help="父任务 ID"),
+    title:      str            = typer.Option(..., "--title", "-t", help="子任务标题"),
+    assignee:   Optional[str]  = typer.Option(None, "--assignee", "-a", help="分配给小主脑"),
+    priority:   str            = typer.Option("normal", "--priority", "-p", help="优先级"),
+    api:        str            = api_url_option,
+) -> None:
+    """在指定父任务下创建子任务"""
+    payload: dict = {"title": title, "parent_id": parent_id, "priority": priority}
+    if assignee:
+        payload["assignee_synapse"] = assignee
+    data = _post("/api/tasks", payload)
+    console.print(
+        f"[green]✓[/green] 子任务已创建 [bold]{data['id']}[/bold] "
+        f"父={parent_id} 标题={title}"
+    )
+
+
+@tasks_app.command("blocked", help="检查任务的依赖阻塞状态")
+def tasks_blocked(
+    task_id: str = typer.Argument(..., help="任务 ID"),
+    api:     str = api_url_option,
+) -> None:
+    """显示任务是否被依赖阻塞及未完成的前置依赖"""
+    data = _get(f"/api/tasks/{task_id}/blocked")
+    if data.get("is_blocked"):
+        console.print(f"[yellow]⚠[/yellow]  任务 [bold]{task_id}[/bold] 被以下依赖阻塞：")
+        for dep in data.get("pending_deps", []):
+            console.print(
+                f"  • [dim]{dep['id']}[/dim]  "
+                f"{_state(dep.get('state',''))}  {dep.get('title','')[:50]}"
+            )
+    else:
+        console.print(f"[green]✓[/green]  任务 [bold]{task_id}[/bold] 无阻塞，可自由执行")
 
 
 @tasks_app.command("analyze", help="主脑分析任务（需要 ANTHROPIC_API_KEY）")
@@ -980,6 +1038,58 @@ def playbooks_search(
                       f"v{p.get('version',1)} [{rate_color}]{rate:.0%}[/{rate_color}]")
         console.print(f"   {(p.get('content') or '')[:120]}")
         console.print()
+
+
+# ── genes ────────────────────────────────────────────────────────────────
+
+import json as _json
+from pathlib import Path as _Path
+
+
+@genes_app.command("export", help="导出全部经验教训 + 作战手册为 JSON 文件")
+def genes_export(
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="输出文件路径（默认打印到 stdout）"),
+    api:    str            = api_url_option,
+) -> None:
+    """将 lessons + playbooks 导出为可移植的 JSON bundle"""
+    data = _get("/api/genes/export")
+    dump = _json.dumps(data, ensure_ascii=False, indent=2)
+    if output:
+        _Path(output).write_text(dump, encoding="utf-8")
+        console.print(
+            f"[green]✓[/green] 已导出 "
+            f"{data.get('lessons_count', 0)} 条经验 + "
+            f"{data.get('playbooks_count', 0)} 本手册 → {output}"
+        )
+    else:
+        console.print(dump)
+
+
+@genes_app.command("import", help="从 JSON 文件批量导入经验教训 + 作战手册")
+def genes_import(
+    file: str = typer.Argument(..., help="JSON bundle 文件路径"),
+    api:  str = api_url_option,
+) -> None:
+    """从 genes export 生成的 JSON bundle 批量导入"""
+    path = _Path(file)
+    if not path.exists():
+        err_console.print(f"文件不存在：{file}")
+        raise typer.Exit(1)
+    try:
+        bundle = _json.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:
+        err_console.print(f"JSON 解析失败：{e}")
+        raise typer.Exit(1)
+    result = _post("/api/genes/import", {
+        "lessons":   bundle.get("lessons", []),
+        "playbooks": bundle.get("playbooks", []),
+    })
+    console.print(
+        f"[green]✓[/green] 导入完成  "
+        f"经验 +{result.get('lessons_added', 0)}  "
+        f"手册 +{result.get('playbooks_added', 0)}  "
+        f"手册跳过 {result.get('playbooks_skipped', 0)}"
+    )
 
 
 # ── 入口 ──────────────────────────────────────────────────────────────
