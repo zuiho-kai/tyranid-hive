@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from loguru import logger
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from greyfield_hive.models.task import Task, TaskState, STATE_TRANSITIONS, TERMINAL_STATES
@@ -95,12 +95,18 @@ class TaskService:
     async def list_tasks(
         self,
         state: Optional[TaskState] = None,
+        priority: Optional[str] = None,
+        assignee: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[Task]:
         q = select(Task).order_by(Task.created_at.desc()).limit(limit).offset(offset)
         if state is not None:
             q = q.where(Task.state == state)
+        if priority is not None:
+            q = q.where(Task.priority == priority)
+        if assignee is not None:
+            q = q.where(Task.assignee_synapse == assignee)
         result = await self.db.execute(q)
         return list(result.scalars().all())
 
@@ -201,6 +207,25 @@ class TaskService:
         await self.db.commit()
         await self.db.refresh(task)
         return task
+
+    async def stats(self) -> dict:
+        """返回各状态任务计数 + 汇总"""
+        result = await self.db.execute(
+            select(Task.state, func.count(Task.id)).group_by(Task.state)
+        )
+        by_state: dict[str, int] = {row[0].value: row[1] for row in result.all()}
+
+        total = sum(by_state.values())
+        terminal = {"Complete", "Cancelled"}
+        active = sum(v for k, v in by_state.items() if k not in terminal)
+
+        return {
+            "total":    total,
+            "active":   active,
+            "complete": by_state.get("Complete", 0),
+            "cancelled": by_state.get("Cancelled", 0),
+            "by_state": by_state,
+        }
 
     # ── 私有工具 ──────────────────────────────────────────
 

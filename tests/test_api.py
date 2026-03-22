@@ -97,3 +97,35 @@ async def test_list_synapses(client):
 async def test_task_not_found(client):
     resp = await client.get("/api/tasks/NOT-EXIST")
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_task_stats_empty(client):
+    resp = await client.get("/api/tasks/stats")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 0
+    assert data["active"] == 0
+    assert "by_state" in data
+
+
+@pytest.mark.asyncio
+async def test_task_stats_counts(client):
+    await client.post("/api/tasks", json={"title": "任务A", "priority": "high"})
+    await client.post("/api/tasks", json={"title": "任务B", "priority": "normal"})
+    resp = await client.get("/api/tasks/stats")
+    data = resp.json()
+    assert data["total"] == 2
+    assert data["active"] == 2
+    assert data["by_state"].get("Incubating", 0) == 2
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_filter_by_priority(client):
+    await client.post("/api/tasks", json={"title": "高优先", "priority": "high"})
+    await client.post("/api/tasks", json={"title": "普通", "priority": "normal"})
+    resp = await client.get("/api/tasks?priority=high")
+    assert resp.status_code == 200
+    items = resp.json()
+    assert len(items) == 1
+    assert items[0]["priority"] == "high"
