@@ -201,13 +201,17 @@ def stats(
 
 @tasks_app.command("list", help="列出任务")
 def tasks_list(
-    state:    Optional[str] = typer.Option(None, "--state",    "-s", help="按状态过滤"),
-    priority: Optional[str] = typer.Option(None, "--priority", "-p", help="按优先级过滤"),
-    search:   Optional[str] = typer.Option(None, "--search",   "-q", help="关键词搜索（title/description/id）"),
-    sort_by:  str            = typer.Option("updated_at", "--sort-by", help="排序字段: updated_at/created_at/priority/state"),
-    order:    str            = typer.Option("desc", "--order", "-o", help="排序方向: asc/desc"),
-    limit:    int            = typer.Option(20,  "--limit",    "-n", help="最多显示条数"),
-    api:      str            = api_url_option,
+    state:     Optional[str] = typer.Option(None, "--state",    "-s", help="按状态过滤"),
+    priority:  Optional[str] = typer.Option(None, "--priority", "-p", help="按优先级过滤"),
+    search:    Optional[str] = typer.Option(None, "--search",   "-q", help="关键词搜索（title/description/id）"),
+    assignee:  Optional[str] = typer.Option(None, "--assignee",       help="按执行者过滤（synapse 名称）"),
+    label:     Optional[str] = typer.Option(None, "--label",    "-l", help="按标签过滤"),
+    parent_id: Optional[str] = typer.Option(None, "--parent",         help="只显示指定父任务的子任务"),
+    root_only: bool           = typer.Option(False, "--root",          help="只显示顶层任务（无父任务）"),
+    sort_by:   str            = typer.Option("updated_at", "--sort-by", help="排序字段: updated_at/created_at/priority/state"),
+    order:     str            = typer.Option("desc", "--order", "-o", help="排序方向: asc/desc"),
+    limit:     int            = typer.Option(20,  "--limit",    "-n", help="最多显示条数"),
+    api:       str            = api_url_option,
 ) -> None:
     """列出任务列表"""
     params: dict = {"limit": limit, "sort_by": sort_by, "order": order}
@@ -217,30 +221,45 @@ def tasks_list(
         params["priority"] = priority
     if search:
         params["q"] = search
+    if assignee:
+        params["assignee"] = assignee
+    if label:
+        params["label"] = label
+    if parent_id:
+        params["parent_id"] = parent_id
+    if root_only:
+        params["root_only"] = "true"
 
     tasks = _get("/api/tasks", params=params)
     if not tasks:
         console.print("[dim]没有匹配的任务[/dim]")
         return
 
+    # 只在结果中有标签时才显示标签列
+    has_labels = any(t.get("labels") for t in tasks)
     table = Table(box=box.ROUNDED)
     table.add_column("ID",       style="bold")
-    table.add_column("标题",     max_width=40)
+    table.add_column("标题",     max_width=36)
     table.add_column("状态",     no_wrap=True)
     table.add_column("优先级",   no_wrap=True)
     table.add_column("执行者",   style="dim")
+    if has_labels:
+        table.add_column("标签", style="cyan")
     table.add_column("更新时间", style="dim")
 
     for t in tasks:
         updated = (t.get("updated_at") or "")[:16].replace("T", " ")
-        table.add_row(
+        row = [
             t["id"],
             t.get("title", ""),
             _state(t.get("state", "")),
             _priority(t.get("priority", "normal")),
             t.get("assignee_synapse") or "-",
-            updated,
-        )
+        ]
+        if has_labels:
+            row.append(" ".join(t.get("labels") or []))
+        row.append(updated)
+        table.add_row(*row)
 
     console.print(table)
     console.print(f"[dim]共 {len(tasks)} 条[/dim]")

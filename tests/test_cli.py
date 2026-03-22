@@ -456,3 +456,149 @@ def test_fitness_show_no_marks():
         result = runner.invoke(app, ["fitness", "show", "no-marks-syn"])
     assert result.exit_code == 0
     assert "no-marks-syn" in result.output
+
+
+# ── tasks list 新过滤参数 ───────────────────────────────────────────────────
+
+def test_tasks_list_with_label_filter():
+    """tasks list --label bug：应传递 label 参数给 _get"""
+    with patch("greyfield_hive.cli._get", MagicMock(return_value=[])) as mock:
+        runner.invoke(app, ["tasks", "list", "--label", "bug"])
+    args, kwargs = mock.call_args
+    params = args[1] if len(args) > 1 else kwargs.get("params", {})
+    assert params.get("label") == "bug"
+
+
+def test_tasks_list_with_assignee_filter():
+    """tasks list --assignee code-expert：应传递 assignee 参数"""
+    with patch("greyfield_hive.cli._get", MagicMock(return_value=[])) as mock:
+        runner.invoke(app, ["tasks", "list", "--assignee", "code-expert"])
+    args, kwargs = mock.call_args
+    params = args[1] if len(args) > 1 else kwargs.get("params", {})
+    assert params.get("assignee") == "code-expert"
+
+
+def test_tasks_list_with_parent_filter():
+    """tasks list --parent T-001：应传递 parent_id 参数"""
+    with patch("greyfield_hive.cli._get", MagicMock(return_value=[])) as mock:
+        runner.invoke(app, ["tasks", "list", "--parent", "T-001"])
+    args, kwargs = mock.call_args
+    params = args[1] if len(args) > 1 else kwargs.get("params", {})
+    assert params.get("parent_id") == "T-001"
+
+
+def test_tasks_list_root_only():
+    """tasks list --root：应传递 root_only=true 参数"""
+    with patch("greyfield_hive.cli._get", MagicMock(return_value=[])) as mock:
+        runner.invoke(app, ["tasks", "list", "--root"])
+    args, kwargs = mock.call_args
+    params = args[1] if len(args) > 1 else kwargs.get("params", {})
+    assert params.get("root_only") == "true"
+
+
+def test_tasks_list_shows_labels_column():
+    """tasks list：结果中有标签时，表格显示标签列"""
+    tasks = [
+        {
+            "id": "T-001", "title": "有标签任务", "state": "Planning",
+            "priority": "high", "assignee_synapse": None,
+            "labels": ["bug", "urgent"],
+            "updated_at": "2024-01-01T10:00:00",
+        }
+    ]
+    with mock_get(tasks):
+        result = runner.invoke(app, ["tasks", "list"])
+    assert result.exit_code == 0
+    assert "bug" in result.output
+    assert "urgent" in result.output
+
+
+def test_tasks_list_no_labels_column_when_empty():
+    """tasks list：所有任务无标签时，不显示标签列标题"""
+    tasks = [
+        {
+            "id": "T-002", "title": "普通任务", "state": "Planning",
+            "priority": "normal", "assignee_synapse": None,
+            "labels": [],
+            "updated_at": "2024-01-01T10:00:00",
+        }
+    ]
+    with mock_get(tasks):
+        result = runner.invoke(app, ["tasks", "list"])
+    assert result.exit_code == 0
+    # 标签列头不应出现（任务标题里没有"标签"两字）
+    assert "bug" not in result.output
+    assert "urgent" not in result.output
+
+
+# ── tasks show 新字段 ────────────────────────────────────────────────────────
+
+def test_tasks_show_with_parent_and_labels():
+    """tasks show：应显示父任务 ID 和标签"""
+    with mock_get({
+        "id": "T-003", "title": "子任务", "description": "",
+        "state": "Executing", "priority": "high",
+        "assignee_synapse": None, "creator": "test",
+        "parent_id": "T-001",
+        "labels": ["feature", "ui"],
+        "depends_on": [],
+        "created_at": "2024-01-01T10:00:00", "updated_at": "2024-01-01T11:00:00",
+        "progress_log": [], "todos": [], "flow_log": [],
+    }):
+        result = runner.invoke(app, ["tasks", "show", "T-003"])
+    assert result.exit_code == 0
+    assert "T-001" in result.output
+    assert "feature" in result.output
+    assert "ui" in result.output
+
+
+def test_tasks_show_with_deps_blocked():
+    """tasks show：有依赖且被阻塞时显示阻塞信息"""
+    task_data = {
+        "id": "T-004", "title": "被阻塞任务", "description": "",
+        "state": "Planning", "priority": "normal",
+        "assignee_synapse": None, "creator": "test",
+        "parent_id": None, "labels": [],
+        "depends_on": ["T-005"],
+        "created_at": "2024-01-01T10:00:00", "updated_at": "2024-01-01T11:00:00",
+        "progress_log": [], "todos": [], "flow_log": [],
+    }
+    blocked_data = {"is_blocked": True, "pending_deps": ["T-005"]}
+
+    call_count = [0]
+    def multi_get(path, **kwargs):
+        call_count[0] += 1
+        if "blocked" in path:
+            return blocked_data
+        return task_data
+
+    with patch("greyfield_hive.cli._get", side_effect=multi_get):
+        result = runner.invoke(app, ["tasks", "show", "T-004"])
+    assert result.exit_code == 0
+    assert "T-005" in result.output
+    assert "阻塞" in result.output
+
+
+def test_tasks_show_with_deps_not_blocked():
+    """tasks show：有依赖但未阻塞时显示未阻塞提示"""
+    task_data = {
+        "id": "T-006", "title": "依赖已完成任务", "description": "",
+        "state": "Executing", "priority": "normal",
+        "assignee_synapse": None, "creator": "test",
+        "parent_id": None, "labels": [],
+        "depends_on": ["T-005"],
+        "created_at": "2024-01-01T10:00:00", "updated_at": "2024-01-01T11:00:00",
+        "progress_log": [], "todos": [], "flow_log": [],
+    }
+    blocked_data = {"is_blocked": False, "pending_deps": []}
+
+    def multi_get(path, **kwargs):
+        if "blocked" in path:
+            return blocked_data
+        return task_data
+
+    with patch("greyfield_hive.cli._get", side_effect=multi_get):
+        result = runner.invoke(app, ["tasks", "show", "T-006"])
+    assert result.exit_code == 0
+    assert "T-005" in result.output  # 依赖项仍显示
+    assert "未被阻塞" in result.output
