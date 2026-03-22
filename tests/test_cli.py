@@ -253,6 +253,109 @@ def test_tasks_cancel():
     assert payload["new_state"] == "Cancelled"
 
 
+# ── tasks patch ────────────────────────────────────────────────────────────
+
+def test_tasks_patch_title():
+    """tasks patch --title：应调用 httpx.patch 并显示更新成功"""
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"id": "BT-001", "title": "新标题", "priority": "high"}
+    mock_resp.raise_for_status = MagicMock()
+
+    with patch("greyfield_hive.cli.httpx") as mock_httpx:
+        mock_httpx.patch.return_value = mock_resp
+        mock_httpx.ConnectError = Exception
+        mock_httpx.HTTPStatusError = Exception
+        result = runner.invoke(app, ["tasks", "patch", "BT-001", "--title", "新标题"])
+
+    assert result.exit_code == 0
+    assert "BT-001" in result.output
+    assert "已更新" in result.output
+    call_kwargs = mock_httpx.patch.call_args
+    assert "BT-001" in call_kwargs[0][0]
+    assert call_kwargs[1]["json"]["title"] == "新标题"
+
+
+def test_tasks_patch_priority():
+    """tasks patch --priority：应传递 priority 字段"""
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"id": "BT-001", "title": "战团", "priority": "critical"}
+    mock_resp.raise_for_status = MagicMock()
+
+    with patch("greyfield_hive.cli.httpx") as mock_httpx:
+        mock_httpx.patch.return_value = mock_resp
+        mock_httpx.ConnectError = Exception
+        mock_httpx.HTTPStatusError = Exception
+        result = runner.invoke(app, ["tasks", "patch", "BT-001", "--priority", "critical"])
+
+    assert result.exit_code == 0
+    payload = mock_httpx.patch.call_args[1]["json"]
+    assert payload.get("priority") == "critical"
+    assert "title" not in payload
+
+
+def test_tasks_patch_no_fields():
+    """tasks patch 不带任何字段：应报错退出"""
+    result = runner.invoke(app, ["tasks", "patch", "BT-001"])
+    assert result.exit_code != 0
+
+
+def test_tasks_patch_multiple_fields():
+    """tasks patch --title --desc --priority：应传递全部字段"""
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"id": "BT-001", "title": "新", "priority": "low"}
+    mock_resp.raise_for_status = MagicMock()
+
+    with patch("greyfield_hive.cli.httpx") as mock_httpx:
+        mock_httpx.patch.return_value = mock_resp
+        mock_httpx.ConnectError = Exception
+        mock_httpx.HTTPStatusError = Exception
+        runner.invoke(app, [
+            "tasks", "patch", "BT-001",
+            "--title", "新", "--desc", "新描述", "--priority", "low",
+        ])
+
+    payload = mock_httpx.patch.call_args[1]["json"]
+    assert payload["title"] == "新"
+    assert payload["description"] == "新描述"
+    assert payload["priority"] == "low"
+
+
+# ── tasks delete ────────────────────────────────────────────────────────────
+
+def test_tasks_delete_with_yes_flag():
+    """tasks delete --yes：跳过确认，调用 httpx.delete"""
+    mock_resp = MagicMock()
+    mock_resp.status_code = 204
+
+    with patch("greyfield_hive.cli.httpx") as mock_httpx:
+        mock_httpx.delete.return_value = mock_resp
+        mock_httpx.ConnectError = Exception
+        result = runner.invoke(app, ["tasks", "delete", "BT-001", "--yes"])
+
+    assert result.exit_code == 0
+    assert "BT-001" in result.output
+    assert "已删除" in result.output
+    call_url = mock_httpx.delete.call_args[0][0]
+    assert "BT-001" in call_url
+
+
+def test_tasks_delete_not_found():
+    """tasks delete --yes：404 时应报错"""
+    mock_resp = MagicMock()
+    mock_resp.status_code = 404
+
+    with patch("greyfield_hive.cli.httpx") as mock_httpx:
+        mock_httpx.delete.return_value = mock_resp
+        mock_httpx.ConnectError = Exception
+        result = runner.invoke(app, ["tasks", "delete", "BT-999", "--yes"])
+
+    assert result.exit_code != 0
+    assert "不存在" in result.output
+
+
 # ── synapses ───────────────────────────────────────────────────────────────
 
 def test_synapses_list():
