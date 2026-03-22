@@ -26,6 +26,8 @@ from greyfield_hive.api.playbooks import router as playbooks_router
 from greyfield_hive.api.stats import router as stats_router
 from greyfield_hive.api.ws import router as ws_router, register_ws_broadcast
 from greyfield_hive.api.evolution import router as evolution_router
+from greyfield_hive.api.fitness import router as fitness_router
+import greyfield_hive.models.fitness  # noqa: F401 — 确保 KillMark 注册到 Base.metadata
 
 
 _orchestrator: OrchestratorWorker | None = None
@@ -89,6 +91,7 @@ app.include_router(playbooks_router)
 app.include_router(stats_router)
 app.include_router(ws_router)
 app.include_router(evolution_router)
+app.include_router(fitness_router)
 
 
 @app.get("/health")

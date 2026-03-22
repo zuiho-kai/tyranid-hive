@@ -24,6 +24,7 @@ from greyfield_hive.services.event_bus import (
 from greyfield_hive.adapters.openclaw import get_adapter, OpenClawAdapter
 from greyfield_hive.services.lessons_bank import LessonsBank
 from greyfield_hive.services.playbook_service import PlaybookService
+from greyfield_hive.services.fitness_service import FitnessService
 
 
 # ── 小主脑元数据（人类可读）────────────────────────────────
@@ -195,6 +196,14 @@ class DispatchWorker:
                 result=result,
             )
 
+            # 战功记录（适存驱动）
+            await self._record_kill_mark(
+                task_id=task_id,
+                synapse=synapse,
+                domain=domain,
+                result=result,
+            )
+
     # ── 基因上下文注入 ────────────────────────────────────
 
     async def _build_enriched_message(
@@ -275,6 +284,38 @@ class DispatchWorker:
                 logger.debug(f"[Dispatcher] 经验入库 {lesson.id[:8]} outcome={outcome}")
         except Exception as e:
             logger.warning(f"[Dispatcher] 经验写入失败: {e}")
+
+    async def _record_kill_mark(
+        self,
+        task_id: str,
+        synapse: str,
+        domain: str,
+        result: dict,
+    ) -> None:
+        """将执行结果写入战功记录（适存驱动）"""
+        try:
+            success = _infer_success(result)
+            rc = result.get("returncode", -1)
+            # score: 成功=1.0，部分成功=0.5（rc=0但有警告），失败=0.3
+            if success:
+                score = 1.0
+            elif rc == 0:
+                score = 0.5
+            else:
+                score = 0.3
+            async with SessionLocal() as db:
+                svc = FitnessService(db)
+                await svc.record_execution(
+                    synapse_id=synapse,
+                    task_id=task_id or None,
+                    domain=domain,
+                    success=success,
+                    score=score,
+                )
+                await db.commit()
+                logger.debug(f"[Dispatcher] 战功入库 synapse={synapse} success={success}")
+        except Exception as e:
+            logger.warning(f"[Dispatcher] 战功记录失败: {e}")
 
     async def _persist_progress(self, task_id: str, synapse: str, result: dict) -> None:
         """将 agent 执行结果写回任务进度日志"""

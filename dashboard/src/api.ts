@@ -428,3 +428,25 @@ export async function fetchEvents(task_id?: string): Promise<BusEvent[]> {
   const r = await fetch(url)
   return r.json()
 }
+
+// ── Fitness 适存度 ────────────────────────────────────────
+
+export interface SynapseScore {
+  synapse_id:    string
+  fitness:       number
+  raw_biomass:   number
+  mark_count:    number
+  success_count: number
+  fail_count:    number
+  success_rate:  number
+}
+
+export interface FitnessLeaderboard {
+  total:  number
+  scores: SynapseScore[]
+}
+
+export async function fetchFitnessLeaderboard(limit = 20): Promise<FitnessLeaderboard> {
+  const r = await fetch(`${BASE}/fitness/leaderboard?limit=${limit}`)
+  return r.json()
+}
