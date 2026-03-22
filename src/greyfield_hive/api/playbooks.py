@@ -145,6 +145,24 @@ async def rollback(slug: str, version: int, db=Depends(get_db)):
     return _pb_dict(pb)
 
 
+@router.post("/auto-crystallize")
+async def auto_crystallize(
+    use_count: int = Query(10, ge=1, description="最低使用次数阈值"),
+    success_rate: float = Query(0.8, ge=0.0, le=1.0, description="最低成功率阈值"),
+    db=Depends(get_db),
+):
+    """扫描所有活跃 Playbook，命中阈值（use_count + success_rate）则自动结晶。"""
+    svc = PlaybookService(db)
+    crystallized = await svc.auto_crystallize_scan(
+        use_count_threshold=use_count,
+        success_rate_threshold=success_rate,
+    )
+    return {
+        "crystallized": len(crystallized),
+        "playbooks": [_pb_dict(pb) for pb in crystallized],
+    }
+
+
 @router.post("/search")
 async def search_playbooks(body: SearchRequest, db=Depends(get_db)):
     svc = PlaybookService(db)

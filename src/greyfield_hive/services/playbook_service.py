@@ -178,16 +178,61 @@ class PlaybookService:
 
     # ── 统计更新（Evolution Master 调用）────────────────
 
-    async def record_usage(self, pb_id: str, success: bool) -> Playbook:
-        """记录一次使用，更新 use_count 和 success_rate（指数移动平均）"""
+    async def record_usage(
+        self,
+        pb_id: str,
+        success: bool,
+        crystallize_threshold: int = 10,
+        crystallize_min_rate: float = 0.8,
+    ) -> Playbook:
+        """记录一次使用，更新 use_count 和 success_rate（指数移动平均）。
+        命中阈值（use_count >= threshold 且 success_rate >= min_rate）时自动结晶。
+        """
         pb = await self.get_by_id(pb_id)
         pb.use_count = (pb.use_count or 0) + 1
         alpha = 0.1  # EMA 平滑系数
         pb.success_rate = (1 - alpha) * (pb.success_rate or 0.0) + alpha * (1.0 if success else 0.0)
         pb.updated_at = datetime.now(timezone.utc)
+        # 自动结晶判断
+        if (
+            not pb.crystallized
+            and pb.use_count >= crystallize_threshold
+            and pb.success_rate >= crystallize_min_rate
+        ):
+            pb.crystallized = True
+            logger.info(
+                f"[Playbook] {pb.slug} v{pb.version} 自动结晶 "
+                f"(use_count={pb.use_count}, success_rate={pb.success_rate:.2f})"
+            )
         await self.db.commit()
         await self.db.refresh(pb)
         return pb
+
+    async def auto_crystallize_scan(
+        self,
+        use_count_threshold: int = 10,
+        success_rate_threshold: float = 0.8,
+    ) -> list[Playbook]:
+        """扫描所有未结晶的活跃 Playbook，命中阈值则自动结晶。返回本次结晶的 Playbook 列表。"""
+        result = await self.db.execute(
+            select(Playbook).where(Playbook.crystallized == False, Playbook.is_active == True)
+        )
+        candidates = list(result.scalars().all())
+        crystallized: list[Playbook] = []
+        for pb in candidates:
+            if (pb.use_count or 0) >= use_count_threshold and (pb.success_rate or 0.0) >= success_rate_threshold:
+                pb.crystallized = True
+                pb.updated_at = datetime.now(timezone.utc)
+                crystallized.append(pb)
+                logger.info(
+                    f"[Playbook] {pb.slug} v{pb.version} 批量扫描结晶 "
+                    f"(use_count={pb.use_count}, success_rate={pb.success_rate:.2f})"
+                )
+        if crystallized:
+            await self.db.commit()
+            for pb in crystallized:
+                await self.db.refresh(pb)
+        return crystallized
 
     async def mark_crystallized(self, pb_id: str) -> Playbook:
         """标记为专化生物形态（已结晶）"""
