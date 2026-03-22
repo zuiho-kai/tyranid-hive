@@ -241,6 +241,60 @@ export async function fetchOverviewStats(): Promise<OverviewStats> {
   return r.json()
 }
 
+// ── Overmind Analyze ─────────────────────────────────────
+
+export interface AnalysisResult {
+  summary: string
+  domain: string
+  todos: string[]
+  risks: string[]
+  recommended_state: string
+}
+
+export async function analyzeTask(id: string): Promise<{ task: Task; analysis: AnalysisResult }> {
+  const r = await fetch(`${BASE}/tasks/${id}/analyze`, { method: 'POST' })
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}))
+    throw new Error(err.detail || `HTTP ${r.status}`)
+  }
+  return r.json()
+}
+
+// ── Trial Race ────────────────────────────────────────────
+
+export interface TrialSynapseResult {
+  returncode: number
+  success: boolean
+  stdout: string
+  stderr: string
+  elapsed_sec: number
+}
+
+export interface TrialResult {
+  task_id: string
+  winner: string | null
+  tie: boolean
+  results: Record<string, TrialSynapseResult>
+}
+
+export async function trialTask(
+  id: string,
+  synapses: [string, string],
+  message?: string,
+  domain?: string,
+): Promise<TrialResult> {
+  const r = await fetch(`${BASE}/tasks/${id}/trial`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ synapses, message: message || '', domain: domain || '' }),
+  })
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}))
+    throw new Error(err.detail || `HTTP ${r.status}`)
+  }
+  return r.json()
+}
+
 // ── Events ───────────────────────────────────────────────
 
 export async function fetchEvents(task_id?: string): Promise<BusEvent[]> {

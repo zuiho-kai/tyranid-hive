@@ -1,7 +1,6 @@
 import { useState } from 'react'
-import type { Task } from '../api'
-import { fetchEvents, patchTask, deleteTask, appendTodo, toggleTodo } from '../api'
-import type { BusEvent } from '../api'
+import type { Task, BusEvent, AnalysisResult, TrialResult } from '../api'
+import { fetchEvents, patchTask, deleteTask, appendTodo, toggleTodo, analyzeTask, trialTask } from '../api'
 
 const NEXT_STATES: Record<string, string[]> = {
   Incubating:    ['Planning', 'Cancelled'],
@@ -44,6 +43,12 @@ export default function TaskDetail({ task, onTransition, onDelete, onPatch }: Pr
   const [deleting, setDeleting] = useState(false)
   const [newTodo, setNewTodo] = useState('')
   const [addingTodo, setAddingTodo] = useState(false)
+  const [analyzing, setAnalyzing] = useState(false)
+  const [analyzeResult, setAnalyzeResult] = useState<AnalysisResult | null>(null)
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null)
+  const [trialing, setTrialing] = useState(false)
+  const [trialResult, setTrialResult] = useState<TrialResult | null>(null)
+  const [trialError, setTrialError] = useState<string | null>(null)
 
   if (!task) {
     return (
@@ -118,6 +123,35 @@ export default function TaskDetail({ task, onTransition, onDelete, onPatch }: Pr
       setNewTodo('')
     } finally {
       setAddingTodo(false)
+    }
+  }
+
+  const doAnalyze = async () => {
+    setAnalyzing(true)
+    setAnalyzeResult(null)
+    setAnalyzeError(null)
+    try {
+      const { task: updated, analysis } = await analyzeTask(task.id)
+      onPatch(updated)
+      setAnalyzeResult(analysis)
+    } catch (e: unknown) {
+      setAnalyzeError(e instanceof Error ? e.message : '分析失败')
+    } finally {
+      setAnalyzing(false)
+    }
+  }
+
+  const doTrial = async () => {
+    setTrialing(true)
+    setTrialResult(null)
+    setTrialError(null)
+    try {
+      const result = await trialTask(task.id, ['code-expert', 'research-analyst'], task.description || task.title)
+      setTrialResult(result)
+    } catch (e: unknown) {
+      setTrialError(e instanceof Error ? e.message : '赛马失败')
+    } finally {
+      setTrialing(false)
     }
   }
 
@@ -209,6 +243,68 @@ export default function TaskDetail({ task, onTransition, onDelete, onPatch }: Pr
             ))}
           </div>
         </div>
+      )}
+
+      {/* 智能操作 */}
+      {!editing && (
+        <div style={{ marginBottom: 16, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button
+            onClick={doAnalyze}
+            disabled={analyzing}
+            style={{ padding: '5px 14px', background: analyzing ? '#2d1f5e' : '#4c1d95', border: 'none', borderRadius: 6, color: analyzing ? '#a78bfa' : '#e9d5ff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+          >
+            {analyzing ? '🧠 分析中…' : '🧠 主脑分析'}
+          </button>
+          <button
+            onClick={doTrial}
+            disabled={trialing}
+            style={{ padding: '5px 14px', background: trialing ? '#1a2e1a' : '#14532d', border: 'none', borderRadius: 6, color: trialing ? '#4ade80' : '#bbf7d0', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+          >
+            {trialing ? '⚔️ 赛马中…' : '⚔️ 赛马'}
+          </button>
+        </div>
+      )}
+
+      {/* 分析结果 */}
+      {analyzeError && (
+        <div style={{ marginBottom: 12, padding: '8px 12px', background: '#1a0a0a', border: '1px solid #7f1d1d', borderRadius: 6, fontSize: 12, color: '#f87171' }}>
+          ⚠ {analyzeError}
+        </div>
+      )}
+      {analyzeResult && (
+        <Section title="主脑分析结果">
+          <div style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div><span style={{ color: '#475569' }}>概要：</span>{analyzeResult.summary}</div>
+            <div><span style={{ color: '#475569' }}>领域：</span>{analyzeResult.domain} · <span style={{ color: '#475569' }}>建议状态：</span><span style={{ color: '#a78bfa' }}>{analyzeResult.recommended_state}</span></div>
+            {analyzeResult.risks.length > 0 && (
+              <div><span style={{ color: '#475569' }}>风险：</span><span style={{ color: '#fbbf24' }}>{analyzeResult.risks.join('；')}</span></div>
+            )}
+          </div>
+        </Section>
+      )}
+
+      {/* 赛马结果 */}
+      {trialError && (
+        <div style={{ marginBottom: 12, padding: '8px 12px', background: '#1a0a0a', border: '1px solid #7f1d1d', borderRadius: 6, fontSize: 12, color: '#f87171' }}>
+          ⚠ {trialError}
+        </div>
+      )}
+      {trialResult && (
+        <Section title="赛马结果">
+          <div style={{ fontSize: 12 }}>
+            <div style={{ marginBottom: 8 }}>
+              胜者：<span style={{ fontWeight: 700, color: '#22c55e' }}>{trialResult.winner ?? '（均失败）'}</span>
+              {trialResult.tie && <span style={{ color: '#fbbf24', marginLeft: 6 }}>[平局]</span>}
+            </div>
+            {Object.entries(trialResult.results).map(([synapse, res]) => (
+              <div key={synapse} style={{ display: 'flex', gap: 8, padding: '3px 0', color: '#64748b' }}>
+                <span>{res.success ? '✅' : '❌'}</span>
+                <span style={{ color: synapse === trialResult.winner ? '#22c55e' : '#64748b', fontWeight: synapse === trialResult.winner ? 600 : 400 }}>{synapse}</span>
+                <span>rc={res.returncode}</span>
+              </div>
+            ))}
+          </div>
+        </Section>
       )}
 
       {/* Todos */}
