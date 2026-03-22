@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Column, String, Text, DateTime, JSON, Enum as SAEnum, Index
+from sqlalchemy import Column, String, Text, DateTime, JSON, Enum as SAEnum, Index, ForeignKey
 
 from greyfield_hive.db import Base
 
@@ -80,6 +80,8 @@ class Task(Base):
     todos        = Column(JSON, default=list)
     # 标签列表（自由文本，存储为 JSON 数组，如 ["bug","urgent"]）
     labels       = Column(JSON, default=list)
+    # 父任务 ID（子任务分解时由主脑设置）
+    parent_id    = Column(String(64), ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True)
     # 扩展元数据
     meta         = Column(JSON, default=dict)
 
@@ -89,6 +91,7 @@ class Task(Base):
     __table_args__ = (
         Index("ix_tasks_state", "state"),
         Index("ix_tasks_updated_at", "updated_at"),
+        Index("ix_tasks_parent_id", "parent_id"),
     )
 
     def append_flow(self, from_state: Optional[str], to_state: str, agent: str, reason: str = "") -> None:

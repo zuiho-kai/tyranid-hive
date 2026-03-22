@@ -393,6 +393,48 @@ def tasks_cleanup(
         raise typer.Exit(1)
 
 
+@tasks_app.command("children", help="列出任务的所有直接子任务")
+def tasks_children(
+    task_id: str = typer.Argument(..., help="父任务 ID"),
+    api:     str = api_url_option,
+) -> None:
+    """列出父任务下的所有子任务"""
+    if httpx is None:
+        err_console.print("错误：需要安装 httpx。请执行：pip install httpx")
+        raise typer.Exit(1)
+    try:
+        r = httpx.get(f"{_API_URL}/api/tasks/{task_id}/children", timeout=10)
+        if r.status_code == 404:
+            err_console.print(f"任务不存在：{task_id}")
+            raise typer.Exit(1)
+        r.raise_for_status()
+        tasks = r.json()
+        if not tasks:
+            console.print(f"[yellow]任务 {task_id} 暂无子任务[/yellow]")
+            return
+        table = Table(title=f"子任务列表（父：{task_id}）", show_header=True, header_style="bold cyan")
+        table.add_column("ID",       style="dim", width=26)
+        table.add_column("标题",     min_width=20)
+        table.add_column("状态",     width=14)
+        table.add_column("优先级",   width=8)
+        table.add_column("派发对象", width=18)
+        for t in tasks:
+            table.add_row(
+                t["id"],
+                t["title"][:50],
+                _state(t.get("state") or ""),
+                _priority(t.get("priority") or ""),
+                t.get("assignee_synapse") or "—",
+            )
+        console.print(table)
+    except httpx.ConnectError:
+        err_console.print(f"无法连接到 {_API_URL}，请确认 hive 服务已启动。")
+        raise typer.Exit(1)
+    except httpx.HTTPStatusError as e:
+        err_console.print(f"API 错误 {e.response.status_code}：{e.response.text[:200]}")
+        raise typer.Exit(1)
+
+
 @tasks_app.command("analyze", help="主脑分析任务（需要 ANTHROPIC_API_KEY）")
 def tasks_analyze(
     task_id: str = typer.Argument(..., help="任务 ID"),

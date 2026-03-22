@@ -29,6 +29,7 @@ class CreateTaskRequest(BaseModel):
     assignee_synapse: Optional[str] = None
     meta:        dict = {}
     labels:      list[str] = []
+    parent_id:   Optional[str] = None
 
 
 class TransitionRequest(BaseModel):
@@ -116,6 +117,7 @@ def _task_to_dict(task: Task) -> dict:
         "progress_log":     task.progress_log or [],
         "todos":            task.todos or [],
         "labels":           task.labels or [],
+        "parent_id":        task.parent_id,
         "meta":             task.meta or {},
         "created_at":       task.created_at.isoformat() if task.created_at else None,
         "updated_at":       task.updated_at.isoformat() if task.updated_at else None,
@@ -127,15 +129,19 @@ def _task_to_dict(task: Task) -> dict:
 @router.post("", status_code=201)
 async def create_task(body: CreateTaskRequest, db=Depends(get_db)):
     svc = TaskService(db)
-    task = await svc.create_task(
-        title=body.title,
-        description=body.description,
-        priority=body.priority,
-        creator=body.creator,
-        assignee_synapse=body.assignee_synapse,
-        meta=body.meta,
-        labels=body.labels,
-    )
+    try:
+        task = await svc.create_task(
+            title=body.title,
+            description=body.description,
+            priority=body.priority,
+            creator=body.creator,
+            assignee_synapse=body.assignee_synapse,
+            meta=body.meta,
+            labels=body.labels,
+            parent_id=body.parent_id,
+        )
+    except TaskNotFoundError:
+        raise HTTPException(status_code=404, detail=f"父任务不存在: {body.parent_id}")
     return _task_to_dict(task)
 
 
@@ -149,11 +155,13 @@ async def list_tasks(
     priority: Optional[str] = Query(None),
     assignee: Optional[str] = Query(None),
     q:        Optional[str] = Query(None, description="关键词搜索（title / description / id）"),
-    label:    Optional[str] = Query(None, description="按标签过滤（精确匹配，如 bug）"),
-    sort_by:  str            = Query("updated_at", description="排序字段: updated_at/created_at/priority/state"),
-    order:    str            = Query("desc", description="排序方向: asc/desc"),
-    limit:    int            = Query(50, ge=1, le=200),
-    offset:   int            = Query(0, ge=0),
+    label:     Optional[str] = Query(None, description="按标签过滤（精确匹配，如 bug）"),
+    parent_id: Optional[str] = Query(None, description="按父任务 ID 过滤子任务"),
+    root_only: bool           = Query(False, description="仅返回顶层任务（无父任务）"),
+    sort_by:   str            = Query("updated_at", description="排序字段: updated_at/created_at/priority/state"),
+    order:     str            = Query("desc", description="排序方向: asc/desc"),
+    limit:     int            = Query(50, ge=1, le=200),
+    offset:    int            = Query(0, ge=0),
     db=Depends(get_db),
 ):
     if sort_by not in _VALID_SORT_BY:
@@ -164,7 +172,8 @@ async def list_tasks(
     state_enum = TaskState(state) if state else None
     tasks = await svc.list_tasks(
         state=state_enum, priority=priority, assignee=assignee, q=q,
-        label=label, sort_by=sort_by, order=order, limit=limit, offset=offset,
+        label=label, parent_id=parent_id, root_only=root_only,
+        sort_by=sort_by, order=order, limit=limit, offset=offset,
     )
     return [_task_to_dict(t) for t in tasks]
 
@@ -230,6 +239,17 @@ async def get_task(task_id: str, db=Depends(get_db)):
     except TaskNotFoundError:
         raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
     return _task_to_dict(task)
+
+
+@router.get("/{task_id}/children")
+async def get_task_children(task_id: str, db=Depends(get_db)):
+    """返回指定任务的所有直接子任务"""
+    svc = TaskService(db)
+    try:
+        children = await svc.get_children(task_id)
+    except TaskNotFoundError:
+        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+    return [_task_to_dict(t) for t in children]
 
 
 @router.post("/{task_id}/transition")
