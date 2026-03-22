@@ -1,7 +1,7 @@
 """任务 REST API —— CRUD + 状态流转"""
 
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
 
 from greyfield_hive.agents.overmind_agent import OvermindAgent
@@ -154,6 +154,7 @@ _VALID_ORDER   = {"asc", "desc"}
 
 @router.get("")
 async def list_tasks(
+    response:  Response,
     state:    Optional[str] = Query(None),
     priority: Optional[str] = Query(None),
     assignee: Optional[str] = Query(None),
@@ -173,6 +174,12 @@ async def list_tasks(
         raise HTTPException(status_code=400, detail=f"无效 order: {order}，允许: asc/desc")
     svc = TaskService(db)
     state_enum = TaskState(state) if state else None
+    # 同时查询总数，写入响应头
+    total = await svc.count_tasks(
+        state=state_enum, priority=priority, assignee=assignee, q=q,
+        label=label, parent_id=parent_id, root_only=root_only,
+    )
+    response.headers["X-Total-Count"] = str(total)
     tasks = await svc.list_tasks(
         state=state_enum, priority=priority, assignee=assignee, q=q,
         label=label, parent_id=parent_id, root_only=root_only,
@@ -186,6 +193,27 @@ async def task_stats(db=Depends(get_db)):
     """返回任务统计（各状态计数）"""
     svc = TaskService(db)
     return await svc.stats()
+
+
+@router.get("/count")
+async def count_tasks(
+    state:    Optional[str] = Query(None),
+    priority: Optional[str] = Query(None),
+    assignee: Optional[str] = Query(None),
+    q:        Optional[str] = Query(None),
+    label:    Optional[str] = Query(None),
+    parent_id: Optional[str] = Query(None),
+    root_only: bool          = Query(False),
+    db=Depends(get_db),
+):
+    """返回符合条件的任务总数（用于前端分页显示）"""
+    svc = TaskService(db)
+    state_enum = TaskState(state) if state else None
+    total = await svc.count_tasks(
+        state=state_enum, priority=priority, assignee=assignee, q=q,
+        label=label, parent_id=parent_id, root_only=root_only,
+    )
+    return {"total": total}
 
 
 @router.post("/bulk/transition")

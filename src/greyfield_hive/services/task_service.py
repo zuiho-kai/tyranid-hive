@@ -16,7 +16,7 @@ def _progress_lock(task_id: str) -> asyncio.Lock:
     return _progress_locks[task_id]
 
 from loguru import logger
-from sqlalchemy import select, func
+from sqlalchemy import select, func, cast as sa_cast, Text as sa_Text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from greyfield_hive.models.task import Task, TaskState, STATE_TRANSITIONS, TERMINAL_STATES
@@ -141,6 +141,40 @@ class TaskService:
             )
         )
         return list(result.scalars().all())
+
+    async def count_tasks(
+        self,
+        state: Optional[TaskState] = None,
+        priority: Optional[str] = None,
+        assignee: Optional[str] = None,
+        q: Optional[str] = None,
+        label: Optional[str] = None,
+        parent_id: Optional[str] = None,
+        root_only: bool = False,
+    ) -> int:
+        """返回符合条件的任务总数（不受 limit/offset 影响）"""
+        stmt = select(func.count(Task.id))
+        if state is not None:
+            stmt = stmt.where(Task.state == state)
+        if priority is not None:
+            stmt = stmt.where(Task.priority == priority)
+        if assignee is not None:
+            stmt = stmt.where(Task.assignee_synapse == assignee)
+        if q:
+            pattern = f"%{q}%"
+            stmt = stmt.where(
+                Task.title.ilike(pattern)
+                | Task.description.ilike(pattern)
+                | Task.id.ilike(pattern)
+            )
+        if label:
+            stmt = stmt.where(sa_cast(Task.labels, sa_Text).contains(f'"{label}"'))
+        if parent_id is not None:
+            stmt = stmt.where(Task.parent_id == parent_id)
+        if root_only:
+            stmt = stmt.where(Task.parent_id == None)  # noqa: E711
+        result = await self.db.execute(stmt)
+        return result.scalar_one()
 
     async def get_children(self, parent_id: str) -> list[Task]:
         """返回指定任务的所有直接子任务，按 created_at 升序"""
