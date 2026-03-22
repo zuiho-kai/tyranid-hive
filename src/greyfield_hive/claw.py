@@ -187,9 +187,26 @@ class TyranidClaw:
                 logger.warning(f"小主脑 {syn_name} 引用的基因 {synapse.gene} 不存在")
 
     async def submit_task(self, task: Dict[str, Any]) -> AsyncIterator[Dict[str, Any]]:
-        """提交任务到虫群（主入口）"""
-        # TODO: Phase E1 实现
-        yield {"type": "status", "payload": {"state": "not_implemented"}}
+        """提交任务到虫群（主入口）—— 通过 HTTP API 写入，事件总线驱动执行"""
+        import httpx
+        import os
+
+        api_url = os.environ.get("HIVE_API_URL", "http://localhost:8765")
+        title   = task.get("input", {}).get("raw_text", "") or task.get("title", "用户任务")
+
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(
+                    f"{api_url}/api/tasks",
+                    json={"title": title, "description": str(task.get("context", {})), "creator": "greywind"},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                task_id = data["id"]
+                yield {"type": "task_created", "payload": {"task_id": task_id, "state": data["state"]}}
+        except Exception as e:
+            logger.error(f"提交任务失败: {e}")
+            yield {"type": "error", "payload": {"error": str(e)}}
 
     def get_governance_info(self) -> Dict[str, Any]:
         """获取治理模式信息"""
