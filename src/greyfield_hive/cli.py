@@ -181,11 +181,13 @@ def tasks_list(
     state:    Optional[str] = typer.Option(None, "--state",    "-s", help="按状态过滤"),
     priority: Optional[str] = typer.Option(None, "--priority", "-p", help="按优先级过滤"),
     search:   Optional[str] = typer.Option(None, "--search",   "-q", help="关键词搜索（title/description/id）"),
+    sort_by:  str            = typer.Option("updated_at", "--sort-by", help="排序字段: updated_at/created_at/priority/state"),
+    order:    str            = typer.Option("desc", "--order", "-o", help="排序方向: asc/desc"),
     limit:    int            = typer.Option(20,  "--limit",    "-n", help="最多显示条数"),
     api:      str            = api_url_option,
 ) -> None:
     """列出任务列表"""
-    params: dict = {"limit": limit}
+    params: dict = {"limit": limit, "sort_by": sort_by, "order": order}
     if state:
         params["state"] = state
     if priority:

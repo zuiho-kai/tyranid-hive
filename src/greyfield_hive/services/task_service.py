@@ -104,16 +104,42 @@ class TaskService:
             raise TaskNotFoundError(task_uuid)
         return task
 
+    # 优先级排序权重（数字越小排越前）
+    _PRIORITY_ORDER = {"critical": 0, "high": 1, "normal": 2, "low": 3}
+
     async def list_tasks(
         self,
         state: Optional[TaskState] = None,
         priority: Optional[str] = None,
         assignee: Optional[str] = None,
         q: Optional[str] = None,
+        sort_by: str = "updated_at",
+        order: str = "desc",
         limit: int = 50,
         offset: int = 0,
     ) -> list[Task]:
-        stmt = select(Task).order_by(Task.created_at.desc()).limit(limit).offset(offset)
+        from sqlalchemy import case, asc, desc as sa_desc
+
+        # 构建排序列
+        _order_fn = sa_desc if order == "desc" else asc
+        if sort_by == "created_at":
+            order_clause = _order_fn(Task.created_at)
+        elif sort_by == "priority":
+            # 用 CASE 表达式把 priority 字符串映射为数值再排序
+            priority_case = case(
+                (Task.priority == "critical", 0),
+                (Task.priority == "high",     1),
+                (Task.priority == "normal",   2),
+                (Task.priority == "low",      3),
+                else_=4,
+            )
+            order_clause = _order_fn(priority_case)
+        elif sort_by == "state":
+            order_clause = _order_fn(Task.state)
+        else:  # default: updated_at
+            order_clause = _order_fn(Task.updated_at)
+
+        stmt = select(Task).order_by(order_clause).limit(limit).offset(offset)
         if state is not None:
             stmt = stmt.where(Task.state == state)
         if priority is not None:
@@ -121,7 +147,6 @@ class TaskService:
         if assignee is not None:
             stmt = stmt.where(Task.assignee_synapse == assignee)
         if q:
-            # 在 title、description、id 三列做大小写不敏感的模糊搜索
             pattern = f"%{q}%"
             stmt = stmt.where(
                 Task.title.ilike(pattern)

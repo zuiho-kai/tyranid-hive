@@ -14,6 +14,15 @@ type Tab = 'tasks' | 'genes' | 'synapses'
 const STATE_FILTERS = ['', 'Incubating', 'Planning', 'Reviewing', 'Executing', 'Complete', 'Cancelled'] as const
 type StateFilter = typeof STATE_FILTERS[number]
 
+const SORT_OPTIONS = [
+  { value: 'updated_at:desc', label: '最近更新' },
+  { value: 'updated_at:asc',  label: '最早更新' },
+  { value: 'created_at:desc', label: '最近创建' },
+  { value: 'priority:asc',    label: '优先级 ↑' },
+  { value: 'state:asc',       label: '状态 A→Z' },
+] as const
+type SortOption = typeof SORT_OPTIONS[number]['value']
+
 export default function App() {
   const [tab, setTab] = useState<Tab>('tasks')
   const [tasks, setTasks] = useState<Task[]>([])
@@ -22,15 +31,20 @@ export default function App() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [loading, setLoading] = useState(false)
-  // 搜索 + 状态筛选
+  // 搜索 + 状态筛选 + 排序
   const [search, setSearch] = useState('')
   const [stateFilter, setStateFilter] = useState<StateFilter>('')
+  const [sortOpt, setSortOpt] = useState<SortOption>('updated_at:desc')
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const refreshTasks = useCallback(async (q?: string, state?: string) => {
+  const refreshTasks = useCallback(async (q?: string, state?: string, sort?: string) => {
     setLoading(true)
     try {
-      const params: { q?: string; state?: string } = {}
+      const [sortBy, sortOrder] = (sort ?? sortOpt).split(':')
+      const params: { q?: string; state?: string; sort_by?: string; order?: string } = {
+        sort_by: sortBy,
+        order: sortOrder,
+      }
       if (q)     params.q     = q
       if (state) params.state = state
       const [ts, st] = await Promise.all([fetchTasks(params), fetchStats()])
@@ -43,7 +57,7 @@ export default function App() {
     } finally {
       setLoading(false)
     }
-  }, [selectedTask])
+  }, [selectedTask, sortOpt])
 
   useEffect(() => { refreshTasks() }, [])
   useEffect(() => { fetchSynapses().then(setSynapses) }, [])
@@ -60,6 +74,11 @@ export default function App() {
   const handleStateFilter = (s: StateFilter) => {
     setStateFilter(s)
     refreshTasks(search || undefined, s || undefined)
+  }
+
+  const handleSortChange = (s: SortOption) => {
+    setSortOpt(s)
+    refreshTasks(search || undefined, stateFilter || undefined, s)
   }
 
   const handleWsEvent = useCallback((e: BusEvent) => {
@@ -135,7 +154,7 @@ export default function App() {
         ))}
       </nav>
 
-      {/* 搜索 + 状态筛选栏（仅在战团 tab 显示） */}
+      {/* 搜索 + 状态筛选 + 排序栏（仅在战团 tab 显示） */}
       {tab === 'tasks' && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', background: '#0d0d10', borderBottom: '1px solid #1e2030', flexShrink: 0, flexWrap: 'wrap' }}>
           {/* 搜索框 */}
@@ -170,6 +189,19 @@ export default function App() {
               </button>
             ))}
           </div>
+          {/* 排序下拉 */}
+          <select
+            value={sortOpt}
+            onChange={e => handleSortChange(e.target.value as SortOption)}
+            style={{
+              padding: '4px 8px', fontSize: 11, background: '#1e2030', border: '1px solid #2d3148',
+              borderRadius: 4, color: '#94a3b8', cursor: 'pointer', outline: 'none',
+            }}
+          >
+            {SORT_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
           {/* 搜索结果计数 */}
           {(search || stateFilter) && (
             <span style={{ fontSize: 11, color: '#475569', marginLeft: 4 }}>

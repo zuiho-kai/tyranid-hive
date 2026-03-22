@@ -93,11 +93,13 @@ export interface TaskStats {
 
 // ── Tasks ────────────────────────────────────────────────
 
-export async function fetchTasks(params?: { state?: string; q?: string; priority?: string }): Promise<Task[]> {
+export async function fetchTasks(params?: { state?: string; q?: string; priority?: string; sort_by?: string; order?: string }): Promise<Task[]> {
   const sp = new URLSearchParams()
   if (params?.state)    sp.set('state', params.state)
   if (params?.q)        sp.set('q', params.q)
   if (params?.priority) sp.set('priority', params.priority)
+  if (params?.sort_by)  sp.set('sort_by', params.sort_by)
+  if (params?.order)    sp.set('order', params.order)
   const qs = sp.toString()
   const r = await fetch(`${BASE}/tasks${qs ? '?' + qs : ''}`)
   return r.json()
