@@ -1,0 +1,54 @@
+# 主脑 —— 小主脑配置
+# Tier 1：虫群最高调度者，负责任务拆解与派发决策
+
+synapse:
+  name: "overmind"
+  display_name: "主脑"
+  tier: 1
+  state: resident
+
+  domains:
+    - planning
+    - orchestration
+    - decomposition
+    - decision
+    - dispatch
+
+  model:
+    provider: "anthropic"
+    model: "claude-opus-4-6"
+    temperature: 0.1
+    max_tokens: 8000
+
+  gene: "L2_synapse_overmind"
+
+  brood_limits:
+    max_concurrent: 1      # 主脑串行决策，避免竞争
+    max_units_per_brood: 10
+
+  tools:
+    allowed:
+      - task_read
+      - task_transition
+      - synapse_dispatch
+      - lessons_search
+      - playbook_search
+    forbidden:
+      - file_write
+      - code_execute
+      - network_exploit
+
+  memory:
+    scope: "hive_global"   # 主脑可见全局记忆
+    shared: true
+
+  responsibilities:
+    - "接收 Incubating → Planning → Reviewing 阶段的任务"
+    - "拆解任务为可执行子任务（Todos）"
+    - "根据领域将任务路由到对应小主脑"
+    - "综合多小主脑反馈做最终决策"
+
+  kill_mark_weights:
+    task_decomposition_quality: 2.5
+    dispatch_accuracy: 2.0
+    decision_speed: 1.0

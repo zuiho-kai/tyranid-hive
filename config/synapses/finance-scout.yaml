@@ -1,0 +1,69 @@
+# 财务侦察 —— 小主脑配置
+# Tier 3：专注金融数据采集、市场分析与投资研究
+
+synapse:
+  name: "finance-scout"
+  display_name: "财务侦察"
+  tier: 3
+  state: trial      # 试行阶段，尚未成为常驻小主脑
+
+  domains:
+    - finance
+    - market_analysis
+    - investment_research
+    - financial_data
+    - economic_trends
+
+  model:
+    provider: "openai"
+    model: "gpt-4o"
+    temperature: 0.2
+    max_tokens: 4000
+
+  gene: "L2_synapse_finance"
+
+  brood_limits:
+    max_concurrent: 3
+    max_units_per_brood: 5
+
+  tools:
+    allowed:
+      - web_search
+      - browser_navigate
+      - data_analysis
+      - file_read
+      - file_write
+    forbidden:
+      - code_execute
+      - system_shell
+      - network_exploit
+
+  memory:
+    scope: "synapse_local"
+    shared: true
+
+  data_sources:
+    - name: "公开财报"
+      type: "web_search"
+      priority: high
+    - name: "新闻聚合"
+      type: "rss_feed"
+      priority: medium
+    - name: "宏观数据"
+      type: "api_fetch"
+      priority: medium
+
+  output_format:
+    default: "structured_report"
+    fields:
+      - company_name
+      - ticker
+      - key_metrics
+      - risk_factors
+      - summary
+
+  kill_mark_weights:
+    data_accuracy: 3.0
+    source_credibility: 2.5
+    analysis_depth: 2.0
+    timeliness: 1.5
