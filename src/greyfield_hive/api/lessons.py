@@ -57,18 +57,6 @@ async def add_lesson(body: AddLessonRequest, db=Depends(get_db)):
     return _lesson_dict(lesson)
 
 
-@router.post("/search")
-async def search_lessons(body: SearchRequest, db=Depends(get_db)):
-    bank = LessonsBank(db)
-    results = await bank.search(
-        task_domain=body.domain,
-        task_tags=body.tags,
-        query=body.query,
-        top_k=body.top_k,
-    )
-    return [_lesson_dict(l) for l in results]
-
-
 @router.get("")
 async def list_lessons(
     domain: Optional[str] = Query(None),
@@ -86,6 +74,47 @@ async def list_lessons(
     return [_lesson_dict(l) for l in lessons]
 
 
+# 静态路径必须在 /{lesson_id} 前注册，避免被动态路由先匹配
+
+@router.post("/search")
+async def search_lessons_post(body: SearchRequest, db=Depends(get_db)):
+    bank = LessonsBank(db)
+    results = await bank.search(
+        task_domain=body.domain,
+        task_tags=body.tags,
+        query=body.query,
+        top_k=body.top_k,
+    )
+    return [_lesson_dict(l) for l in results]
+
+
+@router.get("/search")
+async def search_lessons_get(
+    query: str = Query(""),
+    domain: Optional[str] = Query(None),
+    top_k: int = Query(5, ge=1, le=50),
+    db=Depends(get_db),
+):
+    """GET 检索接口（便于 dashboard 直接请求）"""
+    bank = LessonsBank(db)
+    results = await bank.search(
+        task_domain=domain or "",
+        task_tags=[],
+        query=query,
+        top_k=top_k,
+    )
+    return [_lesson_dict(l) for l in results]
+
+
+@router.delete("/expired")
+async def purge_expired(days: int = Query(30, ge=1), db=Depends(get_db)):
+    bank = LessonsBank(db)
+    count = await bank.delete_expired(days=days)
+    return {"deleted": count, "threshold_days": days}
+
+
+# 动态路径放最后
+
 @router.get("/{lesson_id}")
 async def get_lesson(lesson_id: str, db=Depends(get_db)):
     bank = LessonsBank(db)
@@ -95,8 +124,11 @@ async def get_lesson(lesson_id: str, db=Depends(get_db)):
     return _lesson_dict(lesson)
 
 
-@router.delete("/expired")
-async def purge_expired(days: int = Query(30, ge=1), db=Depends(get_db)):
-    bank = LessonsBank(db)
-    count = await bank.delete_expired(days=days)
-    return {"deleted": count, "threshold_days": days}
+@router.delete("/{lesson_id}", status_code=204)
+async def delete_lesson(lesson_id: str, db=Depends(get_db)):
+    from sqlalchemy import delete as sql_delete
+    from greyfield_hive.models.lesson import Lesson
+    result = await db.execute(sql_delete(Lesson).where(Lesson.id == lesson_id))
+    await db.commit()
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail=f"Lesson 不存在: {lesson_id}")
