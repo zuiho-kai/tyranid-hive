@@ -302,6 +302,43 @@ def tasks_transition(
     console.print(f"[green]✓[/green] {task_id} → {_state(task['state'])}")
 
 
+@tasks_app.command("patch", help="部分更新任务字段")
+def tasks_patch(
+    task_id:     str            = typer.Argument(..., help="任务 ID"),
+    title:       Optional[str]  = typer.Option(None, "--title",       "-t", help="新标题"),
+    description: Optional[str]  = typer.Option(None, "--description", "--desc", "-d", help="新描述"),
+    priority:    Optional[str]  = typer.Option(None, "--priority",    "-p", help="新优先级"),
+    api:         str            = api_url_option,
+) -> None:
+    """部分更新任务字段（title / description / priority）"""
+    payload: dict = {}
+    if title is not None:
+        payload["title"] = title
+    if description is not None:
+        payload["description"] = description
+    if priority is not None:
+        payload["priority"] = priority
+    if not payload:
+        err_console.print("错误：请至少指定一个要更新的字段（--title / --description / --priority）")
+        raise typer.Exit(2)
+    if httpx is None:
+        err_console.print("错误：需要安装 httpx。请执行：pip install httpx")
+        raise typer.Exit(1)
+    try:
+        r = httpx.patch(f"{_API_URL}/api/tasks/{task_id}", json=payload, timeout=10)
+        r.raise_for_status()
+        task = r.json()
+        console.print(f"[green]✓[/green] 任务 [bold]{task_id}[/bold] 已更新")
+        for k, v in payload.items():
+            console.print(f"  {k}: {v}")
+    except httpx.ConnectError:
+        err_console.print(f"无法连接到 {_API_URL}，请确认 hive 服务已启动。")
+        raise typer.Exit(1)
+    except httpx.HTTPStatusError as e:
+        err_console.print(f"API 错误 {e.response.status_code}：{e.response.text[:200]}")
+        raise typer.Exit(1)
+
+
 @tasks_app.command("delete", help="删除任务（硬删除）")
 def tasks_delete(
     task_id: str = typer.Argument(..., help="任务 ID"),

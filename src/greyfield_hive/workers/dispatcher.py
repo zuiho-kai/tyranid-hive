@@ -1,8 +1,11 @@
 """派发器 Worker —— 消费 task.dispatch 事件，调用 OpenClaw CLI 执行小主脑
 
 工作流：
-  task.dispatch 事件 → 读取 synapse ID → 调用 openclaw / python agent
-                    → 发布 agent.thoughts → 回写 task.progress_log
+  task.dispatch 事件 → 读取 synapse ID
+                    → 注入基因上下文（Lessons + Playbooks）
+                    → 调用 openclaw / claude CLI
+                    → 回写 task.progress_log
+                    → 自动写入经验教训（Lessons Bank）
 """
 
 import asyncio
@@ -12,6 +15,7 @@ from pathlib import Path
 
 from loguru import logger
 
+from greyfield_hive.db import SessionLocal
 from greyfield_hive.services.event_bus import (
     get_event_bus,
     BusEvent,
@@ -19,6 +23,8 @@ from greyfield_hive.services.event_bus import (
     TOPIC_AGENT_THOUGHTS,
     TOPIC_AGENT_HEARTBEAT,
 )
+from greyfield_hive.services.lessons_bank import LessonsBank
+from greyfield_hive.services.playbook_service import PlaybookService
 
 
 # ── 小主脑元数据（人类可读）────────────────────────────────
@@ -54,6 +60,47 @@ SYNAPSE_META: dict[str, dict] = {
         "tier": 2,
     },
 }
+
+# synapse → 默认领域（用于基因库检索）
+_SYNAPSE_DOMAIN: dict[str, str] = {
+    "overmind":         "general",
+    "evolution-master": "evolution",
+    "code-expert":      "coding",
+    "research-analyst": "research",
+    "finance-scout":    "finance",
+}
+
+
+def _format_lessons_block(lessons: list) -> str:
+    if not lessons:
+        return "（暂无相关经验）"
+    lines = []
+    for l in lessons:
+        outcome_tag = {"success": "✅", "failure": "❌", "partial": "⚠️"}.get(l.outcome, "？")
+        lines.append(f"{outcome_tag} [{l.domain}] {l.content[:200]}")
+    return "\n".join(lines)
+
+
+def _format_playbooks_block(playbooks: list) -> str:
+    if not playbooks:
+        return "（暂无相关手册）"
+    parts = []
+    for p in playbooks:
+        rate_pct = int((p.success_rate or 0) * 100)
+        parts.append(
+            f"《{p.title}》(v{p.version}, 成功率 {rate_pct}%)\n{p.content[:300]}"
+        )
+    return "\n\n".join(parts)
+
+
+def _infer_success(result: dict) -> bool:
+    """从 agent 输出粗略判断任务是否成功"""
+    rc = result.get("returncode", -1)
+    if rc != 0:
+        return False
+    stdout = (result.get("stdout") or "").lower()
+    failure_keywords = ["error", "failed", "traceback", "exception", "fatal"]
+    return not any(kw in stdout for kw in failure_keywords)
 
 
 class DispatchWorker:
@@ -97,6 +144,7 @@ class DispatchWorker:
             task_id  = payload.get("task_id", "")
             synapse  = payload.get("synapse", "overmind")
             message  = payload.get("message", "")
+            domain   = payload.get("domain", _SYNAPSE_DOMAIN.get(synapse, "general"))
             trace_id = event.trace_id
 
             await self.bus.publish(
@@ -107,8 +155,16 @@ class DispatchWorker:
                 payload={"task_id": task_id, "synapse": synapse},
             )
 
+            # 注入基因上下文
+            enriched_message = await self._build_enriched_message(
+                synapse=synapse,
+                message=message,
+                task_id=task_id,
+                domain=domain,
+            )
+
             logger.info(f"[Dispatcher] 派发 {task_id} → {synapse}: {message[:60]}")
-            result = await self._invoke_agent(synapse, message, task_id, trace_id)
+            result = await self._invoke_agent(synapse, enriched_message, task_id, trace_id)
 
             await self.bus.publish(
                 topic=TOPIC_AGENT_THOUGHTS,
@@ -127,13 +183,102 @@ class DispatchWorker:
             if result.get("returncode", -1) != 0:
                 logger.warning(f"[Dispatcher] {synapse} 返回非零: {result.get('returncode')}")
 
-            # 回写 progress_log（仅 task_id 非空时）
+            # 回写 progress_log
             if task_id:
                 await self._persist_progress(task_id, synapse, result)
 
+            # 自动写入经验教训
+            await self._write_outcome_lesson(
+                task_id=task_id,
+                synapse=synapse,
+                domain=domain,
+                message=message,
+                result=result,
+            )
+
+    # ── 基因上下文注入 ────────────────────────────────────
+
+    async def _build_enriched_message(
+        self,
+        synapse: str,
+        message: str,
+        task_id: str,
+        domain: str,
+    ) -> str:
+        """
+        构建携带基因库上下文的富提示词。
+
+        格式：
+          [HIVE CONTEXT]
+          ...基因上下文...
+
+          ## 你的任务
+          {原始 message}
+        """
+        try:
+            async with SessionLocal() as db:
+                bank = LessonsBank(db)
+                # 从 message 中提取简单 tags（按空白分词，长度 3-10 的词）
+                tags = [w for w in message.split() if 3 <= len(w) <= 10][:8]
+                lessons  = await bank.search(task_domain=domain, task_tags=tags, top_k=5)
+                pb_svc   = PlaybookService(db)
+                playbooks = await pb_svc.search(domain=domain, task_tags=tags, top_k=3)
+
+            lessons_text  = _format_lessons_block(lessons)
+            playbooks_text = _format_playbooks_block(playbooks)
+
+            context_block = (
+                f"[HIVE CONTEXT]\n"
+                f"Task-ID : {task_id or '—'}\n"
+                f"Synapse : {synapse}\n"
+                f"Domain  : {domain}\n"
+                f"\n## 历史经验（来自基因库）\n{lessons_text}"
+                f"\n\n## 作战手册\n{playbooks_text}"
+                f"\n\n## 你的任务\n{message}"
+            )
+            return context_block
+
+        except Exception as e:
+            logger.warning(f"[Dispatcher] 基因上下文注入失败，降级到原始消息: {e}")
+            return message
+
+    # ── 经验教训写入 ──────────────────────────────────────
+
+    async def _write_outcome_lesson(
+        self,
+        task_id: str,
+        synapse: str,
+        domain: str,
+        message: str,
+        result: dict,
+    ) -> None:
+        """将 agent 执行结果作为经验教训写入 Lessons Bank"""
+        if not message:
+            return
+        try:
+            success = _infer_success(result)
+            outcome = "success" if success else "failure"
+            stdout  = (result.get("stdout") or "").strip()
+            # 内容：任务摘要 + 输出摘要
+            content = f"[{synapse}] {message[:120]}"
+            if stdout:
+                content += f"\n输出摘要: {stdout[:200]}"
+
+            async with SessionLocal() as db:
+                bank = LessonsBank(db)
+                lesson = await bank.add(
+                    domain=domain,
+                    content=content,
+                    outcome=outcome,
+                    task_id=task_id or None,
+                    tags=[synapse],
+                )
+                logger.debug(f"[Dispatcher] 经验入库 {lesson.id[:8]} outcome={outcome}")
+        except Exception as e:
+            logger.warning(f"[Dispatcher] 经验写入失败: {e}")
+
     async def _persist_progress(self, task_id: str, synapse: str, result: dict) -> None:
         """将 agent 执行结果写回任务进度日志"""
-        from greyfield_hive.db import SessionLocal
         from greyfield_hive.services.task_service import TaskService, TaskNotFoundError
 
         rc     = result.get("returncode", -1)

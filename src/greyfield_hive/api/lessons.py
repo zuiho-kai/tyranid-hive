@@ -121,6 +121,24 @@ async def purge_expired(days: int = Query(30, ge=1), db=Depends(get_db)):
     return {"deleted": count, "threshold_days": days}
 
 
+# 静态子路径（/{lesson_id}/bump）必须在 /{lesson_id} 前注册
+
+@router.post("/{lesson_id}/bump")
+async def bump_lesson(lesson_id: str, db=Depends(get_db)):
+    """增加 Lesson 使用频次并更新 last_used（使用后调用）"""
+    from datetime import datetime, timezone
+    from greyfield_hive.models.lesson import Lesson
+    bank = LessonsBank(db)
+    lesson = await bank.get(lesson_id)
+    if lesson is None:
+        raise HTTPException(status_code=404, detail=f"Lesson 不存在: {lesson_id}")
+    lesson.frequency = (lesson.frequency or 0) + 1
+    lesson.last_used = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(lesson)
+    return _lesson_dict(lesson)
+
+
 # 动态路径放最后
 
 @router.patch("/{lesson_id}")
