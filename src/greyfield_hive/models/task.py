@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import Column, String, Text, DateTime, JSON, Enum as SAEnum, Index
-from sqlalchemy.dialects.sqlite import BLOB
 
 from greyfield_hive.db import Base
 

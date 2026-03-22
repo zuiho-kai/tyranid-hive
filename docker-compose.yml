@@ -1,6 +1,15 @@
 version: "3.9"
 
+# ── 默认模式：SQLite（最简单，适合单机部署）────────────────────
+# docker-compose up
+#
+# ── PostgreSQL 模式（生产级持久化）───────────────────────────
+# docker-compose --profile postgres up
+# 首次启动后执行迁移：
+#   docker-compose exec hive alembic upgrade head
+
 services:
+  # ── Hive 主服务 ─────────────────────────────────────────
   hive:
     build:
       context: .
@@ -11,21 +20,53 @@ services:
     ports:
       - "8765:8765"
     volumes:
-      # 持久化数据库
+      # SQLite 模式：持久化数据库文件
       - hive_data:/data
       # 可选：挂载本地 config 目录覆盖容器内配置
       - ./config:/app/config:ro
     environment:
+      # SQLite 模式（默认）
       - HIVE_DB_PATH=/data/hive.db
-      # 可选：覆盖默认配置
-      # - HIVE_DATABASE_URL=sqlite+aiosqlite:////data/hive.db
+      # PostgreSQL 模式：注释掉上面一行，取消注释下面两行
+      # - HIVE_DATABASE_URL=postgresql+asyncpg://hive:hive_secret@postgres:5432/hive
+      # - HIVE_DB_POOL_SIZE=5
+      # 可选：开启 SQL 日志
+      # - HIVE_DB_ECHO=1
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8765/health"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 15s
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false   # SQLite 模式下 postgres 不存在也能启动
+
+  # ── PostgreSQL（生产级持久化，可选）────────────────────────
+  # 启用：docker-compose --profile postgres up
+  postgres:
+    image: postgres:16-alpine
+    container_name: tyranid-hive-postgres
+    profiles: ["postgres"]
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=hive
+      - POSTGRES_USER=hive
+      - POSTGRES_PASSWORD=hive_secret
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hive -d hive"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 volumes:
   hive_data:
+    driver: local
+  postgres_data:
     driver: local
