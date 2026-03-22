@@ -30,6 +30,7 @@ class CreateTaskRequest(BaseModel):
     meta:        dict = {}
     labels:      list[str] = []
     parent_id:   Optional[str] = None
+    depends_on:  list[str] = []
 
 
 class TransitionRequest(BaseModel):
@@ -118,6 +119,7 @@ def _task_to_dict(task: Task) -> dict:
         "todos":            task.todos or [],
         "labels":           task.labels or [],
         "parent_id":        task.parent_id,
+        "depends_on":       task.depends_on or [],
         "meta":             task.meta or {},
         "created_at":       task.created_at.isoformat() if task.created_at else None,
         "updated_at":       task.updated_at.isoformat() if task.updated_at else None,
@@ -139,9 +141,10 @@ async def create_task(body: CreateTaskRequest, db=Depends(get_db)):
             meta=body.meta,
             labels=body.labels,
             parent_id=body.parent_id,
+            depends_on=body.depends_on,
         )
-    except TaskNotFoundError:
-        raise HTTPException(status_code=404, detail=f"父任务不存在: {body.parent_id}")
+    except TaskNotFoundError as e:
+        raise HTTPException(status_code=404, detail=f"任务不存在: {e}")
     return _task_to_dict(task)
 
 
@@ -239,6 +242,30 @@ async def get_task(task_id: str, db=Depends(get_db)):
     except TaskNotFoundError:
         raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
     return _task_to_dict(task)
+
+
+@router.get("/{task_id}/blocked")
+async def get_task_blocked(task_id: str, db=Depends(get_db)):
+    """返回任务是否被依赖阻塞及未完成的依赖列表"""
+    svc = TaskService(db)
+    try:
+        task = await svc.get_by_id(task_id)
+    except TaskNotFoundError:
+        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+    dep_ids = list(task.depends_on or [])
+    if not dep_ids:
+        return {"is_blocked": False, "pending_deps": []}
+    # 收集未完成的依赖
+    pending = []
+    for dep_id in dep_ids:
+        try:
+            dep = await svc.get_by_id(dep_id)
+            from greyfield_hive.models.task import TERMINAL_STATES
+            if dep.state not in TERMINAL_STATES:
+                pending.append({"id": dep.id, "title": dep.title, "state": dep.state.value})
+        except TaskNotFoundError:
+            pass  # 依赖任务已被删除，不计为阻塞
+    return {"is_blocked": bool(pending), "pending_deps": pending}
 
 
 @router.get("/{task_id}/children")

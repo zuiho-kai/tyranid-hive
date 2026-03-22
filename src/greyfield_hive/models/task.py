@@ -82,6 +82,8 @@ class Task(Base):
     labels       = Column(JSON, default=list)
     # 父任务 ID（子任务分解时由主脑设置）
     parent_id    = Column(String(64), ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True)
+    # 依赖任务列表（JSON 数组，存 task_id；所有依赖完成前不自动派发）
+    depends_on   = Column(JSON, default=list)
     # 扩展元数据
     meta         = Column(JSON, default=dict)
 

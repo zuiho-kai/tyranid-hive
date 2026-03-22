@@ -57,10 +57,14 @@ class TaskService:
         meta: Optional[dict] = None,
         labels: Optional[list] = None,
         parent_id: Optional[str] = None,
+        depends_on: Optional[list] = None,
     ) -> Task:
         # 验证父任务存在
         if parent_id is not None:
             await self.get_by_id(parent_id)   # raises TaskNotFoundError if missing
+        # 验证依赖任务存在
+        for dep_id in (depends_on or []):
+            await self.get_by_id(dep_id)      # raises TaskNotFoundError if missing
         task = Task(
             title=title,
             description=description,
@@ -70,6 +74,7 @@ class TaskService:
             meta=meta or {},
             labels=labels or [],
             parent_id=parent_id,
+            depends_on=depends_on or [],
         )
         task.append_flow(None, TaskState.Incubating.value, "system", "任务孵化")
         self.db.add(task)
@@ -113,6 +118,29 @@ class TaskService:
 
     # 优先级排序权重（数字越小排越前）
     _PRIORITY_ORDER = {"critical": 0, "high": 1, "normal": 2, "low": 3}
+
+    async def is_blocked(self, task_id: str) -> bool:
+        """检查任务的所有依赖是否均已完成；有任一未完成则返回 True"""
+        task = await self.get_by_id(task_id)
+        dep_ids = list(task.depends_on or [])
+        if not dep_ids:
+            return False
+        result = await self.db.execute(
+            select(Task.state).where(Task.id.in_(dep_ids))
+        )
+        states = result.scalars().all()
+        return any(s not in TERMINAL_STATES for s in states)
+
+    async def get_waiting_tasks(self, completed_task_id: str) -> list[Task]:
+        """查找所有声明依赖 completed_task_id 且尚未完成的任务"""
+        from sqlalchemy import cast, Text
+        result = await self.db.execute(
+            select(Task).where(
+                cast(Task.depends_on, Text).contains(f'"{completed_task_id}"'),
+                Task.state.notin_(list(TERMINAL_STATES)),
+            )
+        )
+        return list(result.scalars().all())
 
     async def get_children(self, parent_id: str) -> list[Task]:
         """返回指定任务的所有直接子任务，按 created_at 升序"""

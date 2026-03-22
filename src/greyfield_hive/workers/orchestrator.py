@@ -163,3 +163,35 @@ class OrchestratorWorker:
     async def _on_task_completed(self, event: BusEvent) -> None:
         task_id = event.payload.get("task_id")
         logger.info(f"[Orchestrator] 战团 {task_id} 完成")
+        # 解除依赖此任务的等待任务（若其所有依赖均已完成）
+        if task_id:
+            await self._unblock_waiting_tasks(task_id)
+
+    async def _unblock_waiting_tasks(self, completed_task_id: str) -> None:
+        """检查所有依赖 completed_task_id 的任务，若依赖全部完成则派发"""
+        try:
+            async with SessionLocal() as db:
+                svc = TaskService(db)
+                waiting = await svc.get_waiting_tasks(completed_task_id)
+
+            for task in waiting:
+                # 检查该任务是否仍有其他未完成依赖
+                async with SessionLocal() as db:
+                    svc = TaskService(db)
+                    still_blocked = await svc.is_blocked(task.id)
+
+                if not still_blocked:
+                    logger.info(f"[Orchestrator] 任务 {task.id} 依赖解除，自动派发")
+                    await self.bus.publish(
+                        topic=TOPIC_TASK_DISPATCH,
+                        trace_id=task.trace_id,
+                        event_type="task.dispatch.request",
+                        producer="orchestrator",
+                        payload={
+                            "task_id": task.id,
+                            "synapse": task.assignee_synapse or "overmind",
+                            "message": f"依赖任务 {completed_task_id} 已完成，解除阻塞",
+                        },
+                    )
+        except Exception as e:
+            logger.warning(f"[Orchestrator] 依赖解除检查失败: {e}")
