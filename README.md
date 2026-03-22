@@ -347,7 +347,11 @@ Chain Mode 下，每个 Submind 收到的是**完整全局 spec**，读懂全局
 
 - **受限独立意志**：在进化领域可自主判断，但不得绕过主脑调度或对外发言
 - **时序约束**：订阅 `TrialClosed` 事件，Overmind 收敛选出胜者**后**才触发复盘，避免记录错误归因
-- **核心职责**：赛后复盘 → 失败基因落 Lessons → 优秀基因落 Playbook → 维护基因谱系 → **专化生物形态结晶** → **Skill 自合成**
+- **核心职责**：赛后复盘（强制两阶段）→ 维护基因谱系 → **专化生物形态结晶** → **Skill 自合成** → **维护 Skill Router**
+
+  复盘两阶段（参考 Memento-Skills Read-Execute-Reflect-Write 循环，Reflect 和 Write 不能合并）：
+  - **Reflect（诊断）**：失败根因是 tool 问题 / 调用序列问题 / 输入理解问题？显式输出诊断，不跳过
+  - **Write（更新）**：Lessons → Playbook → 触发 Skill 自合成 → 更新 Skill Router 权重
 - **与主脑关系**：主脑可否决进化大师的建议，但进化大师的反对会标记为 `Override` 记录在 Ledger
 
 **专化生物形态结晶**（Tier 4 核心机制）：
@@ -402,13 +406,28 @@ Chain Mode 下，每个 Submind 收到的是**完整全局 spec**，读懂全局
 | **L2** | Playbook（战术手册） | 检索后注入，Top-K | 领域经验，版本化管理，进化大师主导 |
 | **L3** | Lessons（近期教训） | 检索后注入，自然衰减 | 30 天时效，越用越精确 |
 
-**Lessons 衰减公式**（修复版）：
+**Lessons 检索策略**：
 
+Tier 1-2：纯衰减公式（实现简单）
 ```
-score = exp(−0.1 × days) × (1 + log(1 + frequency)) × domain_match × (1 + tag_overlap)
+score = exp(−0.1×days) × (1 + log(1+frequency)) × domain_match × (1 + tag_overlap)
+```
+> `(1 + log(...))` 而非 `log(...)`——确保新 Lesson（frequency=0）有基础分，不会因 log(1+0)=0 永远查不到。
+
+Tier 3+：BM25 + embeddings 混合检索（参考 Memento-Skills，技能库增大后效果明显更好）
+```
+BM25 关键词粗筛（SQLite FTS）+ 语义向量召回（sqlite-vec）
+→ 合并候选集 → 综合重排：语义相似度 × 时效衰减 × 频次 × domain 匹配
 ```
 
-> 注意：`(1 + log(...))` 而非 `log(...)`——确保新写入的 Lesson（frequency=0）有基础分，不会因 log(1+0)=0 导致永远查不到。
+**三层概念区分**（避免混淆）：
+
+| 概念 | 本质 |
+|------|------|
+| Tool / MCP | 可执行代码（实际能力） |
+| Playbook 条目 | tool 调用模式的经验描述 |
+| Lessons | 单次任务的失败/成功记录 |
+| Skill 自合成 | 进化大师生成新 tool（不是新 Playbook）|
 
 **强制落盘**——两条硬规则：
 ```python
