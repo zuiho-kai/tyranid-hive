@@ -372,3 +372,87 @@ def test_synapses_list():
     assert "主脑" in result.output
     assert "T1" in result.output
     assert "T2" in result.output
+
+
+# ── fitness ────────────────────────────────────────────────────────────────
+
+_LEADERBOARD_DATA = {
+    "total": 3,
+    "scores": [
+        {
+            "synapse_id": "code-expert", "fitness": 4.523, "raw_biomass": 5.0,
+            "mark_count": 5, "success_count": 5, "fail_count": 0, "success_rate": 1.0,
+        },
+        {
+            "synapse_id": "research-analyst", "fitness": 2.1, "raw_biomass": 2.5,
+            "mark_count": 3, "success_count": 2, "fail_count": 1, "success_rate": 0.667,
+        },
+        {
+            "synapse_id": "finance-scout", "fitness": 0.9, "raw_biomass": 1.0,
+            "mark_count": 1, "success_count": 1, "fail_count": 0, "success_rate": 1.0,
+        },
+    ],
+}
+
+
+def test_fitness_leaderboard():
+    """fitness leaderboard：应显示排行榜表格"""
+    with mock_get(_LEADERBOARD_DATA):
+        result = runner.invoke(app, ["fitness", "leaderboard"])
+    assert result.exit_code == 0
+    assert "code-expert" in result.output
+    assert "research-analyst" in result.output
+    assert "4.523" in result.output
+
+
+def test_fitness_leaderboard_with_limit():
+    """fitness leaderboard --limit 1：limit 参数传递正确"""
+    with mock_get({"total": 1, "scores": [_LEADERBOARD_DATA["scores"][0]]}):
+        result = runner.invoke(app, ["fitness", "leaderboard", "--limit", "1"])
+    assert result.exit_code == 0
+    assert "code-expert" in result.output
+
+
+def test_fitness_leaderboard_empty():
+    """fitness leaderboard：无记录时应显示提示"""
+    with mock_get({"total": 0, "scores": []}):
+        result = runner.invoke(app, ["fitness", "leaderboard"])
+    assert result.exit_code == 0
+    assert "暂无战功" in result.output
+
+
+def test_fitness_show():
+    """fitness show <synapse_id>：应显示详情和最近战功"""
+    with mock_get({
+        "synapse_id":    "code-expert",
+        "fitness":       4.523,
+        "raw_biomass":   5.0,
+        "mark_count":    5,
+        "success_count": 5,
+        "fail_count":    0,
+        "success_rate":  1.0,
+        "recent_marks": [
+            {
+                "id": "ab12cd34", "mark_type": "execution_success",
+                "domain": "coding", "biomass_delta": 1.0, "score": 1.0,
+                "created_at": "2026-03-22T10:00:00",
+            },
+        ],
+    }):
+        result = runner.invoke(app, ["fitness", "show", "code-expert"])
+    assert result.exit_code == 0
+    assert "code-expert" in result.output
+    assert "4.523" in result.output or "4.5230" in result.output
+    assert "execution_success" in result.output
+
+
+def test_fitness_show_no_marks():
+    """fitness show：无战功记录也应正常显示（空 recent_marks）"""
+    with mock_get({
+        "synapse_id": "no-marks-syn", "fitness": 0.0, "raw_biomass": 0.0,
+        "mark_count": 0, "success_count": 0, "fail_count": 0,
+        "success_rate": 0.0, "recent_marks": [],
+    }):
+        result = runner.invoke(app, ["fitness", "show", "no-marks-syn"])
+    assert result.exit_code == 0
+    assert "no-marks-syn" in result.output

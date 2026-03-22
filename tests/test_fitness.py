@@ -258,3 +258,161 @@ async def test_api_leaderboard_limit(client):
     assert r.status_code == 200
     data = r.json()
     assert len(data["scores"]) == 3
+
+
+# ── recommend 端点测试 ─────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_recommend_no_records_returns_404(client):
+    """无战功记录时推荐应返回 404"""
+    r = await client.get("/api/fitness/recommend?domain=coding")
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_recommend_returns_best_synapse(client):
+    """有记录时推荐应返回适存度最高的 synapse"""
+    # code-expert 3 次成功，research-analyst 1 次成功
+    for _ in range(3):
+        await client.post("/api/fitness/record", json={
+            "synapse_id": "code-expert", "domain": "coding",
+            "success": True, "score": 1.0,
+        })
+    await client.post("/api/fitness/record", json={
+        "synapse_id": "research-analyst", "domain": "coding",
+        "success": True, "score": 1.0,
+    })
+
+    r = await client.get("/api/fitness/recommend?domain=coding")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["synapse_id"] == "code-expert"
+    assert data["domain"] == "coding"
+    assert data["fitness"] > 0
+    assert "reason" in data
+
+
+@pytest.mark.asyncio
+async def test_recommend_with_candidates(client):
+    """candidates 参数只在候选集中推荐"""
+    for syn in ["code-expert", "research-analyst", "finance-scout"]:
+        score = 1.0 if syn == "research-analyst" else 0.5
+        await client.post("/api/fitness/record", json={
+            "synapse_id": syn, "domain": "research",
+            "success": True, "score": score,
+        })
+
+    # 限制只在 research-analyst 和 finance-scout 中选（排除 code-expert）
+    r = await client.get(
+        "/api/fitness/recommend?domain=research"
+        "&candidates=research-analyst,finance-scout"
+    )
+    assert r.status_code == 200
+    # research-analyst 得分更高
+    assert r.json()["synapse_id"] == "research-analyst"
+
+
+@pytest.mark.asyncio
+async def test_recommend_candidates_no_records_404(client):
+    """candidates 中的 synapse 没有战功记录时应返回 404"""
+    # 为 code-expert 写 coding 领域记录
+    await client.post("/api/fitness/record", json={
+        "synapse_id": "code-expert", "domain": "coding",
+        "success": True, "score": 1.0,
+    })
+    # 推荐 research-analyst（无 coding 记录）→ 404
+    r = await client.get(
+        "/api/fitness/recommend?domain=coding&candidates=research-analyst"
+    )
+    assert r.status_code == 404
+
+
+# ── recommend service 单元测试 ────────────────────────────
+
+@pytest.mark.asyncio
+async def test_recommend_service_no_data():
+    """无战功数据时 recommend_synapse 返回 None"""
+    async with SessionLocal() as db:
+        svc = FitnessService(db)
+        result = await svc.recommend_synapse(domain="coding")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_recommend_service_with_data():
+    """有战功数据时 recommend_synapse 返回最高分"""
+    async with SessionLocal() as db:
+        svc = FitnessService(db)
+        await svc.record_execution("code-expert",      None, "coding", True, 1.0)
+        await svc.record_execution("code-expert",      None, "coding", True, 1.0)
+        await svc.record_execution("research-analyst", None, "coding", True, 1.0)
+        await db.commit()
+
+    async with SessionLocal() as db:
+        svc = FitnessService(db)
+        best = await svc.recommend_synapse(domain="coding")
+
+    assert best is not None
+    assert best.synapse_id == "code-expert"
+
+
+@pytest.mark.asyncio
+async def test_recommend_service_candidates_filter():
+    """candidates 过滤生效"""
+    async with SessionLocal() as db:
+        svc = FitnessService(db)
+        for _ in range(3):
+            await svc.record_execution("code-expert", None, "coding", True, 1.0)
+        await svc.record_execution("research-analyst", None, "coding", True, 1.0)
+        await db.commit()
+
+    async with SessionLocal() as db:
+        svc = FitnessService(db)
+        best = await svc.recommend_synapse(
+            domain="coding",
+            candidates=["research-analyst"],
+        )
+
+    assert best is not None
+    assert best.synapse_id == "research-analyst"
+
+
+# ── dispatch synapse=auto 集成测试 ────────────────────────
+
+@pytest.mark.asyncio
+async def test_dispatch_auto_falls_back_to_overmind(client):
+    """无战功记录时 auto dispatch 降级为 overmind"""
+    r = await client.post("/api/tasks", json={"title": "自动路由测试"})
+    assert r.status_code in (200, 201)
+    task_id = r.json()["id"]
+
+    r2 = await client.post(f"/api/tasks/{task_id}/dispatch", json={
+        "synapse": "auto",
+        "message": "测试自动路由",
+    })
+    assert r2.status_code == 200
+    data = r2.json()
+    assert data["status"] == "dispatched"
+    assert data["synapse"] == "overmind"  # 无历史 → 降级
+
+
+@pytest.mark.asyncio
+async def test_dispatch_auto_picks_best_synapse(client):
+    """有战功记录时 auto dispatch 选取最优 synapse"""
+    # 先给 code-expert 刷满 general 领域记录
+    for _ in range(5):
+        await client.post("/api/fitness/record", json={
+            "synapse_id": "code-expert", "domain": "general",
+            "success": True, "score": 1.0,
+        })
+
+    r = await client.post("/api/tasks", json={"title": "智能路由测试"})
+    task_id = r.json()["id"]
+
+    r2 = await client.post(f"/api/tasks/{task_id}/dispatch", json={
+        "synapse": "auto",
+        "message": "测试智能路由",
+    })
+    assert r2.status_code == 200
+    data = r2.json()
+    assert data["synapse"] == "code-expert"  # 适存度最高

@@ -450,3 +450,23 @@ export async function fetchFitnessLeaderboard(limit = 20): Promise<FitnessLeader
   const r = await fetch(`${BASE}/fitness/leaderboard?limit=${limit}`)
   return r.json()
 }
+
+export interface FitnessRecommendation {
+  synapse_id:   string
+  domain:       string
+  fitness:      number
+  success_rate: number
+  mark_count:   number
+  reason:       string
+}
+
+export async function recommendSynapse(
+  domain: string,
+  candidates?: string[],
+): Promise<FitnessRecommendation | null> {
+  const params = new URLSearchParams({ domain })
+  if (candidates?.length) params.set('candidates', candidates.join(','))
+  const r = await fetch(`${BASE}/fitness/recommend?${params}`)
+  if (r.status === 404) return null
+  return r.json()
+}

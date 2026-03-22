@@ -13,6 +13,8 @@ from greyfield_hive.services.task_service import TaskService, InvalidTransitionE
 from greyfield_hive.services.trial_race import TrialRaceService
 from greyfield_hive.services.chain_runner import ChainRunnerService
 from greyfield_hive.services.swarm_runner import SwarmRunnerService, SwarmUnit
+from greyfield_hive.services.fitness_service import FitnessService
+from greyfield_hive.workers.dispatcher import _SYNAPSE_DOMAIN
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
@@ -282,12 +284,24 @@ async def trial_task(task_id: str, body: TrialRequest, db=Depends(get_db)):
 
 @router.post("/{task_id}/dispatch")
 async def dispatch_task(task_id: str, body: DispatchRequest, db=Depends(get_db)):
+    """
+    派发任务。synapse 传 "auto" 时，自动从适存度排行榜中选取最优 synapse。
+    若 "auto" 且无历史战功，降级为 "overmind"。
+    """
+    synapse = body.synapse
+    if synapse == "auto":
+        # 用 message 猜测 domain（未指定时用 general）
+        domain = "general"
+        fitness_svc = FitnessService(db)
+        best = await fitness_svc.recommend_synapse(domain=domain)
+        synapse = best.synapse_id if best else "overmind"
+
     svc = TaskService(db)
     try:
-        await svc.request_dispatch(task_id, body.synapse, body.message)
+        await svc.request_dispatch(task_id, synapse, body.message)
     except TaskNotFoundError:
         raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
-    return {"status": "dispatched", "synapse": body.synapse}
+    return {"status": "dispatched", "synapse": synapse}
 
 
 @router.post("/{task_id}/progress")

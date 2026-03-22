@@ -165,6 +165,49 @@ class FitnessService:
         )).scalars().all()
         return list(rows)
 
+    async def recommend_synapse(
+        self,
+        domain:     str = "general",
+        candidates: Optional[list[str]] = None,
+    ) -> Optional[SynapseScore]:
+        """
+        根据适存度推荐最适合指定领域的 synapse。
+
+        逻辑：
+          1. 若提供 candidates，仅从候选集中选取
+          2. 按该 domain 的战功记录计算适存度
+          3. 返回适存度最高的 SynapseScore；若无记录返回 None
+        """
+        # 查出有战功记录的 synapse（可按 candidates 过滤）
+        stmt = select(KillMark.synapse_id).where(
+            KillMark.domain == domain
+        ).distinct()
+        synapse_ids = (await self._db.execute(stmt)).scalars().all()
+
+        if candidates:
+            synapse_ids = [s for s in synapse_ids if s in candidates]
+
+        if not synapse_ids:
+            return None
+
+        # 计算每个 synapse 的适存度（只取该 domain 的记录）
+        scores: list[SynapseScore] = []
+        for sid in synapse_ids:
+            rows = (await self._db.execute(
+                select(KillMark).where(
+                    KillMark.synapse_id == sid,
+                    KillMark.domain     == domain,
+                )
+            )).scalars().all()
+            if rows:
+                scores.append(_aggregate(sid, rows))
+
+        if not scores:
+            return None
+
+        scores.sort(key=lambda s: s.fitness, reverse=True)
+        return scores[0]
+
 
 # ── 内部工具 ──────────────────────────────────────────────
 

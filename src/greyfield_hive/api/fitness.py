@@ -1,6 +1,7 @@
-"""适存度 API —— 战功记录 + 小主脑排行榜"""
+"""适存度 API —— 战功记录 + 小主脑排行榜 + 智能推荐"""
 
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from greyfield_hive.db import get_db
@@ -15,6 +16,37 @@ class RecordRequest(BaseModel):
     domain:     str = "general"
     success:    bool = True
     score:      float = 1.0   # 0.0~1.0
+
+
+@router.get("/recommend")
+async def recommend_synapse(
+    domain:     str            = Query("general", description="任务领域"),
+    candidates: Optional[str] = Query(None,      description="候选 synapse 列表，逗号分隔"),
+    db=Depends(get_db),
+):
+    """
+    根据适存度推荐最适合指定领域的 synapse。
+    若指定 candidates，仅从候选集中选择。
+    若无战功记录可参考，返回 404。
+    """
+    svc = FitnessService(db)
+    cand_list = [c.strip() for c in candidates.split(",")] if candidates else None
+    best = await svc.recommend_synapse(domain=domain, candidates=cand_list)
+
+    if best is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"领域 '{domain}' 暂无适存度记录，无法推荐",
+        )
+
+    return {
+        "synapse_id":    best.synapse_id,
+        "domain":        domain,
+        "fitness":       best.fitness,
+        "success_rate":  round(best.success_rate, 4),
+        "mark_count":    best.mark_count,
+        "reason":        "最高适存度",
+    }
 
 
 @router.get("/leaderboard")
