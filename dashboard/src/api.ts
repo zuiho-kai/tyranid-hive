@@ -295,6 +295,51 @@ export async function trialTask(
   return r.json()
 }
 
+// ── Timeline / 生物质净值曲线 ──────────────────────────────
+
+export interface TimelinePoint {
+  date: string
+  tasks_created: number
+  tasks_completed: number
+  lessons_added: number
+  net_biomass: number
+}
+
+export interface TimelineData {
+  days: number
+  points: TimelinePoint[]
+}
+
+export async function fetchTimeline(days = 30): Promise<TimelineData> {
+  const r = await fetch(`${BASE}/stats/timeline?days=${days}`)
+  return r.json()
+}
+
+// ── Evolution Status ─────────────────────────────────────
+
+export interface DomainStatus {
+  domain: string
+  total: number
+  success_count: number
+  ready_to_evolve: boolean
+}
+
+export interface EvolutionStatus {
+  threshold: number
+  domains: DomainStatus[]
+}
+
+export async function fetchEvolutionStatus(): Promise<EvolutionStatus> {
+  const r = await fetch(`${BASE}/evolution/status`)
+  return r.json()
+}
+
+export async function triggerEvolveDomain(domain: string): Promise<Record<string, unknown> | null> {
+  const r = await fetch(`${BASE}/evolution/domain/${domain}`, { method: 'POST' })
+  if (r.status === 204) return null
+  return r.json()
+}
+
 // ── Chain Mode ────────────────────────────────────────────
 
 export interface ChainStageResult {

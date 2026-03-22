@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react'
-import { fetchOverviewStats } from '../api'
-import type { OverviewStats } from '../api'
+import { useState, useEffect, useCallback } from 'react'
+import {
+  fetchOverviewStats, fetchTimeline, fetchEvolutionStatus, triggerEvolveDomain,
+} from '../api'
+import type { OverviewStats, TimelineData, EvolutionStatus } from '../api'
 
 const STATE_COLOR: Record<string, string> = {
   Incubating: '#7c3aed', Planning: '#2563eb', Executing: '#0891b2',
@@ -14,19 +16,37 @@ const OUTCOME_COLOR: Record<string, string> = {
 
 export default function OverviewStats() {
   const [stats, setStats] = useState<OverviewStats | null>(null)
+  const [timeline, setTimeline] = useState<TimelineData | null>(null)
+  const [evolution, setEvolution] = useState<EvolutionStatus | null>(null)
+  const [timelineDays, setTimelineDays] = useState(14)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [evolving, setEvolving] = useState<string | null>(null)
 
-  const load = () => {
+  const load = useCallback(() => {
     setLoading(true)
     setError(null)
-    fetchOverviewStats()
-      .then(setStats)
+    Promise.all([
+      fetchOverviewStats(),
+      fetchTimeline(timelineDays),
+      fetchEvolutionStatus(),
+    ])
+      .then(([s, t, e]) => { setStats(s); setTimeline(t); setEvolution(e) })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
-  }
+  }, [timelineDays])
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [load])
+
+  const handleEvolve = async (domain: string) => {
+    setEvolving(domain)
+    try {
+      await triggerEvolveDomain(domain)
+      load()
+    } finally {
+      setEvolving(null)
+    }
+  }
 
   if (loading) return <div style={{ color: '#374151', fontSize: 13, padding: 20 }}>加载中…</div>
   if (error || !stats) return (
@@ -60,6 +80,35 @@ export default function OverviewStats() {
           </div>
         </Card>
       </div>
+
+      {/* 生物质净值曲线 */}
+      {timeline && (
+        <Card title="生物质净值曲线" accent="#a855f7">
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center' }}>
+            <span style={{ fontSize: 11, color: '#475569' }}>时间窗口：</span>
+            {[7, 14, 30].map(d => (
+              <button
+                key={d}
+                onClick={() => { setTimelineDays(d) }}
+                style={{
+                  ...btnStyle,
+                  background: timelineDays === d ? '#a855f733' : '#1e2030',
+                  color: timelineDays === d ? '#a855f7' : '#94a3b8',
+                  border: timelineDays === d ? '1px solid #a855f744' : '1px solid #2d3148',
+                }}
+              >
+                {d}天
+              </button>
+            ))}
+          </div>
+          <SparklineChart points={timeline.points} />
+          <div style={{ display: 'flex', gap: 16, marginTop: 8, fontSize: 11, color: '#475569' }}>
+            <span style={{ color: '#a855f7' }}>── 生物质净值</span>
+            <span style={{ color: '#22c55e' }}>── 今日完成</span>
+            <span style={{ color: '#0891b2' }}>── 今日经验</span>
+          </div>
+        </Card>
+      )}
 
       {/* 任务状态分布 */}
       {Object.keys(tasks.by_state).length > 0 && (
@@ -126,6 +175,42 @@ export default function OverviewStats() {
         </Card>
       )}
 
+      {/* Evolution Master 进化状态 */}
+      {evolution && evolution.domains.length > 0 && (
+        <Card title={`进化状态（阈值 ${evolution.threshold} 条成功经验）`} accent="#f59e0b">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {evolution.domains.map(d => (
+              <div key={d.domain} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ color: d.ready_to_evolve ? '#f59e0b' : '#475569', fontSize: 12, minWidth: 80 }}>
+                  {d.ready_to_evolve ? '⚡' : '·'} {d.domain}
+                </span>
+                <div style={{ flex: 1, height: 4, background: '#1e2030', borderRadius: 2 }}>
+                  <div style={{
+                    width: `${Math.min(100, (d.success_count / evolution.threshold) * 100)}%`,
+                    height: '100%',
+                    background: d.ready_to_evolve ? '#f59e0b' : '#334155',
+                    borderRadius: 2,
+                    transition: 'width 0.3s',
+                  }} />
+                </div>
+                <span style={{ fontSize: 11, color: '#475569', minWidth: 40, textAlign: 'right' }}>
+                  {d.success_count}/{evolution.threshold}
+                </span>
+                {d.ready_to_evolve && (
+                  <button
+                    onClick={() => handleEvolve(d.domain)}
+                    disabled={evolving === d.domain}
+                    style={{ ...btnStyle, color: '#f59e0b', border: '1px solid #f59e0b44', fontSize: 10 }}
+                  >
+                    {evolving === d.domain ? '进化中…' : '萃取'}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
       {/* 空状态 */}
       {tasks.total === 0 && lessons.total === 0 && playbooks.total === 0 && (
         <div style={{ color: '#374151', fontSize: 13, textAlign: 'center', marginTop: 40 }}>
@@ -133,6 +218,77 @@ export default function OverviewStats() {
         </div>
       )}
     </div>
+  )
+}
+
+// ── 生物质净值曲线（纯 SVG）────────────────────────────────
+
+function SparklineChart({ points }: { points: { date: string; net_biomass: number; tasks_completed: number; lessons_added: number }[] }) {
+  if (!points.length) return null
+  const W = 600, H = 80, PAD = 4
+  const maxBio = Math.max(...points.map(p => p.net_biomass), 1)
+  const maxBar = Math.max(...points.map(p => Math.max(p.tasks_completed, p.lessons_added)), 1)
+  const xStep = (W - PAD * 2) / Math.max(points.length - 1, 1)
+
+  // 生物质净值折线
+  const bioLine = points.map((p, i) => {
+    const x = PAD + i * xStep
+    const y = H - PAD - ((p.net_biomass / maxBio) * (H - PAD * 2))
+    return `${x},${y}`
+  }).join(' ')
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 80 }}>
+      {/* 背景网格 */}
+      {[0.25, 0.5, 0.75, 1].map(f => (
+        <line key={f} x1={PAD} y1={H - PAD - f * (H - PAD * 2)} x2={W - PAD} y2={H - PAD - f * (H - PAD * 2)}
+          stroke="#1e2030" strokeWidth="1" />
+      ))}
+
+      {/* 每日完成任务（绿色柱） */}
+      {points.map((p, i) => {
+        const bh = (p.tasks_completed / maxBar) * (H - PAD * 2) * 0.4
+        const x = PAD + i * xStep - 3
+        return bh > 0 ? (
+          <rect key={`c${i}`} x={x} y={H - PAD - bh} width={3} height={bh} fill="#22c55e44" rx={1} />
+        ) : null
+      })}
+
+      {/* 每日经验新增（蓝色柱） */}
+      {points.map((p, i) => {
+        const bh = (p.lessons_added / maxBar) * (H - PAD * 2) * 0.4
+        const x = PAD + i * xStep + 1
+        return bh > 0 ? (
+          <rect key={`l${i}`} x={x} y={H - PAD - bh} width={3} height={bh} fill="#0891b244" rx={1} />
+        ) : null
+      })}
+
+      {/* 净值折线（面积填充） */}
+      <defs>
+        <linearGradient id="bioGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#a855f7" stopOpacity="0.3" />
+          <stop offset="100%" stopColor="#a855f7" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {points.length > 1 && (
+        <polygon
+          points={`${PAD},${H - PAD} ${bioLine} ${PAD + (points.length - 1) * xStep},${H - PAD}`}
+          fill="url(#bioGrad)"
+        />
+      )}
+      {points.length > 1 && (
+        <polyline points={bioLine} fill="none" stroke="#a855f7" strokeWidth="1.5" strokeLinejoin="round" />
+      )}
+
+      {/* 数据点 */}
+      {points.map((p, i) => {
+        const x = PAD + i * xStep
+        const y = H - PAD - ((p.net_biomass / maxBio) * (H - PAD * 2))
+        return p.net_biomass > 0 ? (
+          <circle key={i} cx={x} cy={y} r={2} fill="#a855f7" />
+        ) : null
+      })}
+    </svg>
   )
 }
 
