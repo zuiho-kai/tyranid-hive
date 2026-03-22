@@ -3,15 +3,13 @@
 工作流：
   task.dispatch 事件 → 读取 synapse ID
                     → 注入基因上下文（Lessons + Playbooks）
-                    → 调用 openclaw / claude CLI
+                    → 通过 OpenClawAdapter 调用 agent（openclaw / claude / mock）
                     → 回写 task.progress_log
                     → 自动写入经验教训（Lessons Bank）
 """
 
 import asyncio
 import os
-import subprocess
-from pathlib import Path
 
 from loguru import logger
 
@@ -23,6 +21,7 @@ from greyfield_hive.services.event_bus import (
     TOPIC_AGENT_THOUGHTS,
     TOPIC_AGENT_HEARTBEAT,
 )
+from greyfield_hive.adapters.openclaw import get_adapter, OpenClawAdapter
 from greyfield_hive.services.lessons_bank import LessonsBank
 from greyfield_hive.services.playbook_service import PlaybookService
 
@@ -111,8 +110,8 @@ class DispatchWorker:
         self._running = False
         self._sem = asyncio.Semaphore(max_concurrent)
         self._q: asyncio.Queue | None = None
-        # OpenClaw 工作目录
-        self._claw_dir = Path(os.environ.get("HIVE_CLAW_DIR", "."))
+        # 原生适配器（自动探测 openclaw/claude CLI，降级到 mock）
+        self._adapter: OpenClawAdapter = get_adapter()
 
     @property
     def running(self) -> bool:
@@ -314,10 +313,7 @@ class DispatchWorker:
         trace_id: str,
         timeout: int = 300,
     ) -> dict:
-        """
-        尝试通过 OpenClaw CLI 调用 agent。
-        若 CLI 不可用（开发环境），返回 mock 结果。
-        """
+        """通过适配器调用 agent（openclaw / claude / mock）"""
         env = {
             **os.environ,
             "HIVE_TASK_ID":   task_id,
@@ -325,39 +321,8 @@ class DispatchWorker:
             "HIVE_SYNAPSE":   synapse,
             "HIVE_API_URL":   os.environ.get("HIVE_API_URL", "http://localhost:8765"),
         }
-
-        # 优先尝试 openclaw CLI
-        cmd = ["openclaw", "agent", "--agent", synapse, "-m", message]
-
-        loop = asyncio.get_event_loop()
         try:
-            result = await loop.run_in_executor(
-                None,
-                lambda: subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
-                    env=env,
-                    cwd=str(self._claw_dir),
-                ),
-            )
-            return {
-                "returncode": result.returncode,
-                "stdout":     result.stdout[-5000:],
-                "stderr":     result.stderr[-2000:],
-            }
-        except FileNotFoundError:
-            # openclaw 未安装 → 开发模式 mock
-            logger.debug(f"[Dispatcher] openclaw 未安装，使用 mock 模式 synapse={synapse}")
-            return {
-                "returncode": 0,
-                "stdout":     f"[mock] {synapse} 处理完毕: {message[:80]}",
-                "stderr":     "",
-            }
-        except subprocess.TimeoutExpired:
-            logger.error(f"[Dispatcher] {synapse} 超时 {timeout}s")
-            return {"returncode": -1, "stdout": "", "stderr": f"timeout after {timeout}s"}
+            return await self._adapter.invoke(synapse, message, env, timeout)
         except Exception as e:
             logger.error(f"[Dispatcher] 调用失败: {e}")
             return {"returncode": -1, "stdout": "", "stderr": str(e)}

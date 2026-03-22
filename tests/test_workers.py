@@ -23,6 +23,7 @@ from greyfield_hive.services.event_bus import (
 from greyfield_hive.models.task import TaskState
 from greyfield_hive.workers.orchestrator import OrchestratorWorker
 from greyfield_hive.workers.dispatcher import DispatchWorker
+from greyfield_hive.adapters.openclaw import MockAdapter
 
 
 # ── 辅助函数 ────────────────────────────────────────────────────────
@@ -301,6 +302,7 @@ class TestDispatchWorker:
         bus = make_bus()
         worker = DispatchWorker()
         worker.bus = bus
+        worker._adapter = MockAdapter()  # 强制 mock，不依赖 CLI 探测
 
         thoughts_q = bus.subscribe(TOPIC_AGENT_THOUGHTS)
         bus.subscribe(TOPIC_AGENT_HEARTBEAT)  # 消耗 heartbeat
@@ -434,6 +436,7 @@ class TestOrchestratorDispatcherIntegration:
 
         dispatcher = DispatchWorker()
         dispatcher.bus = bus
+        dispatcher._adapter = MockAdapter()  # 强制 mock，不依赖 CLI 探测
 
         thoughts_q = bus.subscribe(TOPIC_AGENT_THOUGHTS)
         bus.subscribe(TOPIC_AGENT_HEARTBEAT)

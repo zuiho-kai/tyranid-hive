@@ -14,6 +14,7 @@ from greyfield_hive.services.event_bus import (
     TOPIC_AGENT_HEARTBEAT,
 )
 from greyfield_hive.workers.dispatcher import DispatchWorker
+from greyfield_hive.adapters.openclaw import MockAdapter
 from greyfield_hive.db import engine, Base, SessionLocal
 from greyfield_hive.services.task_service import TaskService
 
@@ -108,6 +109,7 @@ async def test_mock_output_content_in_progress_log():
     bus = make_bus()
     worker = DispatchWorker()
     worker.bus = bus
+    worker._adapter = MockAdapter()  # 强制 mock，不依赖 CLI 探测
 
     bus.subscribe(TOPIC_AGENT_THOUGHTS)
     bus.subscribe(TOPIC_AGENT_HEARTBEAT)
