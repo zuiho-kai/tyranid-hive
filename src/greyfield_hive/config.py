@@ -1,7 +1,7 @@
 """虫群配置模型 —— Pydantic 校验"""
 
 from typing import Literal, Optional, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class OvermindConfig(BaseModel):
@@ -63,5 +63,4 @@ class HiveConfig(BaseModel):
     evolution: EvolutionConfig = Field(default_factory=EvolutionConfig)
     tools: ToolConfig = Field(default_factory=ToolConfig)
 
-    class Config:
-        extra = "allow"  # 允许扩展字段
+    model_config = ConfigDict(extra="allow")  # 允许扩展字段

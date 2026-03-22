@@ -264,10 +264,34 @@ def tasks_show(
     table.add_row("状态",    _state(t.get("state", "")))
     table.add_row("优先级",  _priority(t.get("priority", "normal")))
     table.add_row("执行者",  t.get("assignee_synapse") or "-")
+    # 父任务
+    parent = t.get("parent_id")
+    if parent:
+        table.add_row("父任务", parent)
+    # 标签
+    labels = t.get("labels") or []
+    if labels:
+        table.add_row("标签", " ".join(f"[cyan]{lb}[/cyan]" for lb in labels))
+    # 依赖
+    deps = t.get("depends_on") or []
+    if deps:
+        table.add_row("依赖", "  ".join(deps))
     table.add_row("创建者",  t.get("creator", ""))
     table.add_row("创建时间", (t.get("created_at") or "")[:19].replace("T", " "))
     table.add_row("更新时间", (t.get("updated_at") or "")[:19].replace("T", " "))
     console.print(table)
+
+    # 阻塞状态
+    if deps:
+        try:
+            blocked = _get(f"/api/tasks/{task_id}/blocked")
+            if blocked.get("is_blocked"):
+                pending = blocked.get("pending_deps") or []
+                console.print(f"\n[bold red]⚠ 任务被阻塞[/bold red]  等待依赖完成: {', '.join(pending)}")
+            else:
+                console.print("\n[dim]依赖已全部完成，任务未被阻塞[/dim]")
+        except Exception:
+            pass
 
     # 进度日志
     prog = t.get("progress_log") or []
