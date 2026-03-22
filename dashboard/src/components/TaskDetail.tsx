@@ -1,6 +1,6 @@
-import { useState } from 'react'
-import type { Task, BusEvent, AnalysisResult, TrialResult, ChainResult, SwarmResult } from '../api'
-import { fetchEvents, patchTask, deleteTask, appendTodo, toggleTodo, analyzeTask, trialTask, chainTask, swarmTask } from '../api'
+import { useState, useEffect } from 'react'
+import type { Task, BusEvent, AnalysisResult, TrialResult, ChainResult, SwarmResult, BlockedStatus } from '../api'
+import { fetchEvents, patchTask, deleteTask, appendTodo, toggleTodo, analyzeTask, trialTask, chainTask, swarmTask, fetchTaskChildren, fetchTaskBlocked } from '../api'
 
 const NEXT_STATES: Record<string, string[]> = {
   Incubating:    ['Planning', 'Cancelled'],
@@ -62,6 +62,15 @@ export default function TaskDetail({ task, onTransition, onDelete, onPatch }: Pr
   const [swarmUnits, setSwarmUnits] = useState(
     'code-expert:实现功能A\nresearch-analyst:调研方案B'
   )
+  // 子任务 & 阻塞状态
+  const [children, setChildren] = useState<Task[]>([])
+  const [blocked, setBlocked] = useState<BlockedStatus | null>(null)
+
+  useEffect(() => {
+    if (!task) return
+    fetchTaskChildren(task.id).then(setChildren)
+    fetchTaskBlocked(task.id).then(setBlocked)
+  }, [task?.id])
 
   if (!task) {
     return (
@@ -501,6 +510,56 @@ export default function TaskDetail({ task, onTransition, onDelete, onPatch }: Pr
           </div>
         )}
       </Section>
+
+      {/* 依赖阻塞状态 */}
+      {task.depends_on && task.depends_on.length > 0 && (
+        <Section title="依赖状态">
+          {blocked === null ? (
+            <div style={{ fontSize: 12, color: '#64748b' }}>加载中…</div>
+          ) : blocked.is_blocked ? (
+            <div>
+              <div style={{ fontSize: 12, color: '#f97316', marginBottom: 6 }}>⚠ 被以下依赖阻塞</div>
+              {blocked.pending_deps.map(dep => (
+                <div key={dep.id} style={{ display: 'flex', gap: 8, fontSize: 12, padding: '3px 0', color: '#94a3b8' }}>
+                  <span style={{ color: STATE_COLOR[dep.state] ?? '#64748b' }}>●</span>
+                  <span style={{ color: '#475569' }}>{dep.id.slice(0, 8)}</span>
+                  <span>{dep.title}</span>
+                  <span style={{ color: '#374151' }}>[{dep.state}]</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: '#22c55e' }}>✓ 所有依赖已完成，可自由执行</div>
+          )}
+        </Section>
+      )}
+
+      {/* 子战团（Sub-tasks）*/}
+      {children.length > 0 && (
+        <Section title={`子战团 (${children.length})`}>
+          {children.map(child => (
+            <div key={child.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0', fontSize: 12 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: STATE_COLOR[child.state] ?? '#64748b', flexShrink: 0, display: 'inline-block' }} />
+              <span style={{ color: '#64748b', fontFamily: 'monospace', flexShrink: 0 }}>{child.id.slice(0, 8)}</span>
+              <span style={{ color: '#94a3b8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{child.title}</span>
+              <span style={{ color: STATE_COLOR[child.state] ?? '#64748b', flexShrink: 0 }}>{child.state}</span>
+            </div>
+          ))}
+        </Section>
+      )}
+
+      {/* 标签 */}
+      {task.labels && task.labels.length > 0 && (
+        <Section title="标签">
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {task.labels.map((label, i) => (
+              <span key={i} style={{ padding: '2px 8px', background: '#1e2030', border: '1px solid #2d3148', borderRadius: 10, fontSize: 11, color: '#a78bfa' }}>
+                {label}
+              </span>
+            ))}
+          </div>
+        </Section>
+      )}
 
       {/* 流转记录 */}
       {(task.flow_log?.length ?? 0) > 0 && (

@@ -19,6 +19,9 @@ export interface Task {
   meta: Record<string, unknown>
   created_at: string
   updated_at: string
+  parent_id: string | null
+  depends_on: string[]
+  labels: string[]
 }
 
 export interface FlowEntry {
@@ -418,6 +421,60 @@ export async function swarmTask(
     const err = await r.json().catch(() => ({}))
     throw new Error(err.detail || `HTTP ${r.status}`)
   }
+  return r.json()
+}
+
+// ── 子任务 & 依赖阻塞 ────────────────────────────────────
+
+export async function fetchTaskChildren(id: string): Promise<Task[]> {
+  const r = await fetch(`${BASE}/tasks/${id}/children`)
+  if (!r.ok) return []
+  return r.json()
+}
+
+export interface BlockedStatus {
+  is_blocked: boolean
+  pending_deps: Array<{ id: string; title: string; state: string }>
+}
+
+export async function fetchTaskBlocked(id: string): Promise<BlockedStatus> {
+  const r = await fetch(`${BASE}/tasks/${id}/blocked`)
+  if (!r.ok) return { is_blocked: false, pending_deps: [] }
+  return r.json()
+}
+
+// ── 基因导出/导入 ─────────────────────────────────────────
+
+export interface GenesBundle {
+  exported_at: string
+  lessons_count: number
+  playbooks_count: number
+  lessons: unknown[]
+  playbooks: unknown[]
+}
+
+export async function exportGenes(): Promise<GenesBundle> {
+  const r = await fetch(`${BASE}/genes/export`)
+  if (!r.ok) throw new Error(`HTTP ${r.status}`)
+  return r.json()
+}
+
+export interface ImportGenesResult {
+  lessons_added: number
+  playbooks_added: number
+  playbooks_skipped: number
+}
+
+export async function importGenes(bundle: Partial<GenesBundle>): Promise<ImportGenesResult> {
+  const r = await fetch(`${BASE}/genes/import`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      lessons:   bundle.lessons   ?? [],
+      playbooks: bundle.playbooks ?? [],
+    }),
+  })
+  if (!r.ok) throw new Error(`HTTP ${r.status}`)
   return r.json()
 }
 
