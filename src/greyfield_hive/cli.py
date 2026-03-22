@@ -391,6 +391,89 @@ def tasks_cleanup(
         raise typer.Exit(1)
 
 
+@tasks_app.command("analyze", help="主脑分析任务（需要 ANTHROPIC_API_KEY）")
+def tasks_analyze(
+    task_id: str = typer.Argument(..., help="任务 ID"),
+    api:     str = api_url_option,
+) -> None:
+    """调用 Overmind LLM 分析任务，拆解子任务并推荐状态"""
+    if httpx is None:
+        err_console.print("错误：需要安装 httpx。请执行：pip install httpx")
+        raise typer.Exit(1)
+    try:
+        r = httpx.post(f"{_API_URL}/api/tasks/{task_id}/analyze", timeout=60)
+        if r.status_code == 404:
+            err_console.print(f"任务不存在：{task_id}")
+            raise typer.Exit(1)
+        if r.status_code == 503:
+            err_console.print(f"[yellow]⚠[/yellow] {r.json().get('detail', 'LLM 不可用')}")
+            raise typer.Exit(1)
+        r.raise_for_status()
+        data = r.json()
+        analysis = data.get("analysis", {})
+        console.print(f"[green]✓[/green] 分析完成 [bold]{task_id}[/bold]")
+        console.print(f"  概要：{analysis.get('summary', '')}")
+        console.print(f"  领域：{analysis.get('domain', '')}  建议状态：{analysis.get('recommended_state', '')}")
+        todos = analysis.get("todos", [])
+        if todos:
+            console.print(f"  Todos（{len(todos)} 条）：")
+            for i, t in enumerate(todos, 1):
+                console.print(f"    {i}. {t}")
+        risks = analysis.get("risks", [])
+        if risks:
+            console.print(f"  风险：{'; '.join(risks)}")
+    except httpx.ConnectError:
+        err_console.print(f"无法连接到 {_API_URL}，请确认 hive 服务已启动。")
+        raise typer.Exit(1)
+    except httpx.HTTPStatusError as e:
+        err_console.print(f"API 错误 {e.response.status_code}：{e.response.text[:200]}")
+        raise typer.Exit(1)
+
+
+@tasks_app.command("trial", help="赛马：两个 Synapse 并行竞争同一任务")
+def tasks_trial(
+    task_id:  str = typer.Argument(..., help="任务 ID"),
+    synapses: str = typer.Option("code-expert,research-analyst", "--synapses", "-s",
+                                  help="两个 synapse，逗号分隔"),
+    message:  str = typer.Option("", "--message", "-m", help="任务消息（留空使用任务描述）"),
+    domain:   str = typer.Option("", "--domain",  "-d", help="领域（留空自动推断）"),
+    api:      str = api_url_option,
+) -> None:
+    """触发赛马：两个 synapse 并行处理任务，胜者经验自动入库"""
+    parts = [s.strip() for s in synapses.split(",") if s.strip()]
+    if len(parts) != 2:
+        err_console.print("错误：--synapses 必须包含恰好两个名称，用逗号分隔")
+        raise typer.Exit(1)
+    if httpx is None:
+        err_console.print("错误：需要安装 httpx。请执行：pip install httpx")
+        raise typer.Exit(1)
+    try:
+        payload: dict = {"synapses": parts}
+        if message:
+            payload["message"] = message
+        if domain:
+            payload["domain"] = domain
+        console.print(f"[cyan]▶[/cyan] 赛马开始：{parts[0]} vs {parts[1]}…")
+        r = httpx.post(f"{_API_URL}/api/tasks/{task_id}/trial", json=payload, timeout=120)
+        if r.status_code == 404:
+            err_console.print(f"任务不存在：{task_id}")
+            raise typer.Exit(1)
+        r.raise_for_status()
+        data = r.json()
+        winner = data.get("winner")
+        results = data.get("results", {})
+        console.print(f"[green]✓[/green] 赛马完成  胜者：[bold]{winner or '无（均失败）'}[/bold]")
+        for synapse, res in results.items():
+            icon = "✅" if res.get("success") else "❌"
+            console.print(f"  {icon} {synapse}  rc={res.get('returncode', '?')}")
+    except httpx.ConnectError:
+        err_console.print(f"无法连接到 {_API_URL}，请确认 hive 服务已启动。")
+        raise typer.Exit(1)
+    except httpx.HTTPStatusError as e:
+        err_console.print(f"API 错误 {e.response.status_code}：{e.response.text[:200]}")
+        raise typer.Exit(1)
+
+
 @tasks_app.command("cancel", help="取消任务")
 def tasks_cancel(
     task_id: str = typer.Argument(..., help="任务 ID"),

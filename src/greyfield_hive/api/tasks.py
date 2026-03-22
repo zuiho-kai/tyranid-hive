@@ -4,9 +4,13 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
+from greyfield_hive.agents.overmind_agent import OvermindAgent
 from greyfield_hive.db import get_db
 from greyfield_hive.models.task import Task, TaskState
+from greyfield_hive.services.lessons_bank import LessonsBank
+from greyfield_hive.services.playbook_service import PlaybookService
 from greyfield_hive.services.task_service import TaskService, InvalidTransitionError, TaskNotFoundError
+from greyfield_hive.services.trial_race import TrialRaceService
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
@@ -221,7 +225,6 @@ async def transition_task(task_id: str, body: TransitionRequest, db=Depends(get_
 @router.post("/{task_id}/trial")
 async def trial_task(task_id: str, body: TrialRequest, db=Depends(get_db)):
     """赛马：两个 synapse 并行竞争同一任务，胜者经验自动入库"""
-    from greyfield_hive.services.task_service import TaskService, TaskNotFoundError
     if len(body.synapses) != 2:
         raise HTTPException(status_code=400, detail="synapses 必须恰好包含两个元素")
     # 验证任务存在
@@ -231,7 +234,6 @@ async def trial_task(task_id: str, body: TrialRequest, db=Depends(get_db)):
     except TaskNotFoundError:
         raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
 
-    from greyfield_hive.services.trial_race import TrialRaceService
     race = TrialRaceService(db=db)
     result = await race.run(
         task_id=task_id,
@@ -322,3 +324,70 @@ async def toggle_todo(task_id: str, index: int, db=Depends(get_db)):
     except IndexError as e:
         raise HTTPException(status_code=422, detail=str(e))
     return _task_to_dict(task)
+
+
+@router.post("/{task_id}/analyze")
+async def analyze_task(task_id: str, db=Depends(get_db)):
+    """主脑分析任务 —— 调用 Overmind LLM 拆解 todos、识别风险、推荐状态
+
+    - 若未配置 ANTHROPIC_API_KEY，返回 503（降级提示）
+    - 成功后：将 todos 注入任务、添加分析进度、推荐状态流转
+    """
+    svc = TaskService(db)
+    try:
+        task = await svc.get_by_id(task_id)
+    except TaskNotFoundError:
+        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+
+    agent = OvermindAgent()
+    if not agent.is_available():
+        raise HTTPException(
+            status_code=503,
+            detail="Overmind LLM 不可用：未设置 ANTHROPIC_API_KEY",
+        )
+
+    # 从基因库检索相关上下文
+    bank = LessonsBank(db)
+    lessons = await bank.search(task_domain="general", top_k=5)
+    pb_svc = PlaybookService(db)
+    playbooks = await pb_svc.search(domain="general", top_k=3)
+
+    result = await agent.analyze(
+        title=task.title,
+        description=task.description or "",
+        lessons=[
+            {"domain": l.domain, "content": l.content, "outcome": l.outcome}
+            for l in lessons
+        ],
+        playbooks=[
+            {"title": p.title, "content": p.content, "success_rate": p.success_rate,
+             "version": p.version}
+            for p in playbooks
+        ],
+    )
+
+    # 将分析结果写入任务
+    todos = [{"title": t, "done": False} for t in result.todos]
+    if todos:
+        task = await svc.update_todos(task_id, todos)
+
+    summary_content = (
+        f"[Overmind] 分析完成\n"
+        f"概要：{result.summary}\n"
+        f"领域：{result.domain}\n"
+        f"Todos：{len(result.todos)} 条\n"
+        f"风险：{'; '.join(result.risks) or '无'}\n"
+        f"建议状态：{result.recommended_state}"
+    )
+    task = await svc.add_progress(task_id, "overmind", summary_content)
+
+    return {
+        "task":     _task_to_dict(task),
+        "analysis": {
+            "summary":             result.summary,
+            "domain":              result.domain,
+            "todos":               result.todos,
+            "risks":               result.risks,
+            "recommended_state":   result.recommended_state,
+        },
+    }
