@@ -12,6 +12,9 @@
   hive tasks dispatch BT-xxx --synapse=code-expert  派发任务
   hive tasks subtask BT-xxx --title "…"             创建子任务
   hive tasks blocked BT-xxx           检查依赖阻塞状态
+  hive evolve status                  查看各领域进化就绪状态
+  hive evolve scan                    全域扫描，自动提炼 Playbook
+  hive evolve domain <domain>         手动进化指定领域
   hive watch                          实时订阅事件流（SSE）
   hive watch --topic task.status      只看状态变化事件
   hive watch --task BT-xxx -n 10      先看最近10条，再实时追踪
@@ -54,11 +57,13 @@ fitness_app   = typer.Typer(help="适存度排行榜")
 lessons_app   = typer.Typer(help="经验教训基因库")
 playbooks_app = typer.Typer(help="作战手册管理")
 genes_app     = typer.Typer(help="基因库整体导出/导入")
+evolve_app    = typer.Typer(help="进化大师 —— 经验自动萃取为手册")
 app.add_typer(tasks_app,     name="tasks")
 app.add_typer(fitness_app,   name="fitness")
 app.add_typer(lessons_app,   name="lessons")
 app.add_typer(playbooks_app, name="playbooks")
 app.add_typer(genes_app,     name="genes")
+app.add_typer(evolve_app,    name="evolve")
 
 console = Console()
 err_console = Console(stderr=True, style="bold red")
@@ -1135,6 +1140,97 @@ def genes_import(
         f"经验 +{result.get('lessons_added', 0)}  "
         f"手册 +{result.get('playbooks_added', 0)}  "
         f"手册跳过 {result.get('playbooks_skipped', 0)}"
+    )
+
+
+# ── evolve —— 进化大师 ────────────────────────────────────────────────
+
+@evolve_app.command("status", help="查看各领域经验统计与进化就绪状态")
+def evolve_status(
+    api: str = api_url_option,
+) -> None:
+    """显示各领域经验数量、成功率和是否满足进化阈值"""
+    data = _get("/api/evolution/status")
+    threshold = data.get("threshold", 5)
+    domains = data.get("domains") or []
+
+    if not domains:
+        console.print("[dim]暂无经验数据[/dim]")
+        return
+
+    table = Table(title=f"进化状态（阈值 {threshold} 条成功经验）", box=box.ROUNDED)
+    table.add_column("领域",     style="bold")
+    table.add_column("总经验",   justify="right")
+    table.add_column("成功经验", justify="right")
+    table.add_column("可进化",   justify="center")
+
+    for d in sorted(domains, key=lambda x: x.get("success_count", 0), reverse=True):
+        ready = d.get("ready_to_evolve", False)
+        ready_str = "[bold green]✓ 可进化[/bold green]" if ready else "[dim]未达阈值[/dim]"
+        table.add_row(
+            d.get("domain", ""),
+            str(d.get("total", 0)),
+            str(d.get("success_count", 0)),
+            ready_str,
+        )
+
+    console.print(table)
+
+
+@evolve_app.command("scan", help="全域扫描：对所有达到阈值的域自动提炼 Playbook")
+def evolve_scan(
+    api: str = api_url_option,
+) -> None:
+    """触发进化大师全域扫描，将满足阈值的经验自动萃取为作战手册"""
+    data = _post("/api/evolution/scan", {})
+    total = data.get("total", 0)
+    evolved = data.get("evolved") or []
+
+    if total == 0:
+        console.print("[dim]当前没有域达到进化阈值（需要 ≥5 条成功经验）[/dim]")
+        return
+
+    console.print(f"[bold green]✓ 进化完成，共 {total} 个域[/bold green]\n")
+    for r in evolved:
+        verb = "新建" if r.get("is_new") else "升版"
+        console.print(
+            f"  [{verb}] [bold]{r.get('domain')}[/bold]  "
+            f"手册 {r.get('playbook_slug')} v{r.get('playbook_version')}  "
+            f"使用经验 {r.get('lessons_used')} 条"
+        )
+
+
+@evolve_app.command("domain", help="为指定领域提炼经验（手动触发）")
+def evolve_domain(
+    domain: str = typer.Argument(..., help="领域名称，如 coding / research / general"),
+    api:    str = api_url_option,
+) -> None:
+    """对指定域手动触发进化大师，将成功经验萃取为作战手册"""
+    import httpx as _httpx
+    if _httpx is None:
+        err_console.print("缺少 httpx")
+        raise typer.Exit(1)
+
+    # 204 = 经验不足，需要区分处理
+    try:
+        import httpx as _h
+        resp = _h.post(f"{_API_URL}/api/evolution/domain/{domain}")
+        if resp.status_code == 204:
+            console.print(f"[dim]{domain} 域成功经验不足（阈值 5 条），暂无需进化[/dim]")
+            return
+        if resp.status_code >= 400:
+            err_console.print(f"请求失败 {resp.status_code}: {resp.text[:200]}")
+            raise typer.Exit(1)
+        r = resp.json()
+    except Exception as e:
+        err_console.print(f"请求失败：{e}")
+        raise typer.Exit(1)
+
+    verb = "新建" if r.get("is_new") else "升版"
+    console.print(
+        f"[bold green]✓ {domain} 进化完成[/bold green]  [{verb}]  "
+        f"手册 {r.get('playbook_slug')} v{r.get('playbook_version')}  "
+        f"使用经验 {r.get('lessons_used')} 条"
     )
 
 
