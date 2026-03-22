@@ -15,6 +15,8 @@ from typing import List
 
 from loguru import logger
 
+from greyfield_hive.db import SessionLocal
+from greyfield_hive.services.fitness_service import FitnessService
 from greyfield_hive.workers.dispatcher import (
     DispatchWorker,
     _infer_success,
@@ -91,6 +93,9 @@ class ChainRunnerService:
             # 写入 progress_log
             await self._worker._persist_progress(task_id, synapse, raw)
 
+            # 战功记录
+            await _record_fitness(synapse, task_id, domain, stage.success, raw)
+
             if not stage.success:
                 logger.warning(f"[Chain] 阶段 {synapse} 失败，中止执行链")
                 break
@@ -128,3 +133,31 @@ class ChainRunnerService:
             success=all_success,
             final_output=final_output,
         )
+
+
+# ── 适存度记录工具 ─────────────────────────────────────────────────────
+
+async def _record_fitness(
+    synapse: str,
+    task_id: str,
+    domain: str,
+    success: bool,
+    result: dict,
+) -> None:
+    """将执行结果写入战功记录（Chain/Trial/Swarm 共用）"""
+    try:
+        rc = result.get("returncode", -1)
+        score = 1.0 if success else (0.5 if rc == 0 else 0.3)
+        async with SessionLocal() as db:
+            svc = FitnessService(db)
+            await svc.record_execution(
+                synapse_id=synapse,
+                task_id=task_id or None,
+                domain=domain,
+                success=success,
+                score=score,
+            )
+            await db.commit()
+    except Exception as e:
+        from loguru import logger
+        logger.warning(f"[Fitness] 战功记录失败 {synapse}: {e}")

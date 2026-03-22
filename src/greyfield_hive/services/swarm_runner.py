@@ -21,6 +21,7 @@ from typing import List
 
 from loguru import logger
 
+from greyfield_hive.services.chain_runner import _record_fitness
 from greyfield_hive.workers.dispatcher import (
     DispatchWorker,
     _infer_success,
@@ -132,6 +133,9 @@ class SwarmRunnerService:
                     message=unit.message,
                     result=raw,
                 )
+
+                # 战功记录
+                await _record_fitness(unit.synapse, task_id, domain, result.success, raw)
 
                 status = "✅" if result.success else "❌"
                 logger.info(

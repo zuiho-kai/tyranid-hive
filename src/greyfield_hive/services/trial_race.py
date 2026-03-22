@@ -16,6 +16,7 @@ from typing import Optional
 
 from loguru import logger
 
+from greyfield_hive.services.chain_runner import _record_fitness
 from greyfield_hive.workers.dispatcher import (
     DispatchWorker,
     _infer_success,
@@ -162,3 +163,8 @@ class TrialRaceService:
                 message=message,
                 result={"returncode": winner_res.returncode, "stdout": winner_res.stdout},
             )
+
+        # 双方战功记录
+        for synapse, res in trial.results.items():
+            raw = {"returncode": res.returncode, "stdout": res.stdout}
+            await _record_fitness(synapse, trial.task_id, domain, res.success, raw)

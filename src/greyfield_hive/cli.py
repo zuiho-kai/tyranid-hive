@@ -31,8 +31,10 @@ app = typer.Typer(
     help="🧬 Tyranid Hive 虫巢管理工具",
     no_args_is_help=True,
 )
-tasks_app = typer.Typer(help="任务管理")
-app.add_typer(tasks_app, name="tasks")
+tasks_app   = typer.Typer(help="任务管理")
+fitness_app = typer.Typer(help="适存度排行榜")
+app.add_typer(tasks_app,   name="tasks")
+app.add_typer(fitness_app, name="fitness")
 
 console = Console()
 err_console = Console(stderr=True, style="bold red")
@@ -611,6 +613,86 @@ def synapses(
         )
 
     console.print(table)
+
+
+# ── fitness ──────────────────────────────────────────────────────────
+
+@fitness_app.command("leaderboard")
+def fitness_leaderboard(
+    limit: int = typer.Option(20, "--limit", "-n", help="排行榜条数"),
+    api:   str = api_url_option,
+) -> None:
+    """显示小主脑适存度排行榜"""
+    data = _get("/api/fitness/leaderboard", params={"limit": limit})
+    scores = data.get("scores", [])
+
+    if not scores:
+        console.print("[dim]暂无战功记录[/dim]")
+        return
+
+    table = Table(title=f"适存度排行榜（Top {limit}）", box=box.ROUNDED)
+    table.add_column("#",            justify="right", style="dim")
+    table.add_column("小主脑",       style="bold")
+    table.add_column("适存度",       justify="right", style="bright_magenta")
+    table.add_column("原始战功",     justify="right")
+    table.add_column("战功数",       justify="right")
+    table.add_column("成功",         justify="right", style="green")
+    table.add_column("失败",         justify="right", style="red")
+    table.add_column("成功率",       justify="right")
+
+    for i, s in enumerate(scores, 1):
+        rate = s.get("success_rate", 0)
+        rate_color = "green" if rate >= 0.8 else "yellow" if rate >= 0.5 else "red"
+        table.add_row(
+            str(i),
+            s.get("synapse_id", ""),
+            f"{s.get('fitness', 0):.3f}",
+            f"{s.get('raw_biomass', 0):.2f}",
+            str(s.get("mark_count", 0)),
+            str(s.get("success_count", 0)),
+            str(s.get("fail_count", 0)),
+            f"[{rate_color}]{rate:.0%}[/{rate_color}]",
+        )
+
+    console.print(table)
+
+
+@fitness_app.command("show")
+def fitness_show(
+    synapse_id: str = typer.Argument(..., help="小主脑 ID（如 code-expert）"),
+    api:        str = api_url_option,
+) -> None:
+    """查看单个小主脑的适存度详情"""
+    data = _get(f"/api/fitness/{synapse_id}")
+
+    console.print(f"\n[bold]小主脑：[/bold]{synapse_id}")
+    console.print(f"  适存度   [bright_magenta]{data.get('fitness', 0):.4f}[/bright_magenta]")
+    console.print(f"  原始战功 {data.get('raw_biomass', 0):.4f}")
+    console.print(f"  战功数   {data.get('mark_count', 0)}")
+    console.print(f"  成功     {data.get('success_count', 0)}")
+    console.print(f"  失败     {data.get('fail_count', 0)}")
+    rate = data.get("success_rate", 0)
+    rate_color = "green" if rate >= 0.8 else "yellow" if rate >= 0.5 else "red"
+    console.print(f"  成功率   [{rate_color}]{rate:.0%}[/{rate_color}]")
+
+    marks = data.get("recent_marks", [])
+    if marks:
+        console.print("\n[bold]最近战功：[/bold]")
+        m_table = Table(box=box.SIMPLE, show_header=True, padding=(0, 1))
+        m_table.add_column("时间",      style="dim", no_wrap=True)
+        m_table.add_column("类型",      style="cyan")
+        m_table.add_column("领域")
+        m_table.add_column("战功值",    justify="right", style="bright_magenta")
+        m_table.add_column("原始分",    justify="right")
+        for m in marks:
+            m_table.add_row(
+                (m.get("created_at") or "")[:19],
+                m.get("mark_type", ""),
+                m.get("domain", ""),
+                f"{m.get('biomass_delta', 0):.3f}",
+                f"{m.get('score', 0):.2f}",
+            )
+        console.print(m_table)
 
 
 # ── 入口 ──────────────────────────────────────────────────────────────
