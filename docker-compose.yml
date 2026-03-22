@@ -1,4 +1,4 @@
-version: "3.9"
+# Compose Spec（兼容 docker compose v2+，无需 version 字段）
 
 # ── 默认模式：SQLite（最简单，适合单机部署）────────────────────
 # docker-compose up
@@ -24,6 +24,8 @@ services:
       - hive_data:/data
       # 可选：挂载本地 config 目录覆盖容器内配置
       - ./config:/app/config:ro
+      # 可选：挂载本地 genes 目录（热更新 L2 基因/作战手册）
+      - ./genes:/app/genes:ro
     environment:
       # SQLite 模式（默认）
       - HIVE_DB_PATH=/data/hive.db
@@ -38,10 +40,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
-    depends_on:
-      postgres:
-        condition: service_healthy
-        required: false   # SQLite 模式下 postgres 不存在也能启动
+    # depends_on postgres 仅 postgres profile 下生效
+    # （profiles 机制保证 SQLite 模式下 postgres 不启动，无需显式声明依赖）
 
   # ── PostgreSQL（生产级持久化，可选）────────────────────────
   # 启用：docker-compose --profile postgres up

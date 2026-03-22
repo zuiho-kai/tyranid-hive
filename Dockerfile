@@ -19,20 +19,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# 先安装依赖（利用 Docker 层缓存）
+# 先复制 pyproject.toml，安装所有运行时依赖（利用 Docker 层缓存）
+# 使用占位 src/ 让 pip 能解析 [project] 元数据
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir \
-    pydantic loguru pyyaml aiofiles typing-extensions \
-    "fastapi>=0.104.0" "uvicorn[standard]>=0.24.0" "websockets>=12.0" \
-    "sqlalchemy[asyncio]>=2.0.0" "aiosqlite>=0.19.0" \
-    "httpx>=0.27.0"
+RUN mkdir -p src/greyfield_hive && touch src/greyfield_hive/__init__.py && \
+    pip install --no-cache-dir -e ".[server]" && \
+    rm -rf src/greyfield_hive
 
-# 复制源码并安装包（非 editable，避免需要整个 venv）
+# 复制源码，完成最终安装
 COPY src/ src/
-COPY config/ config/
+
+# 配置文件 + 基因库（运行时读取）
+COPY config/     config/
+COPY genes/      genes/
+COPY alembic.ini alembic.ini
+COPY migrations/ migrations/
+
+# 安装包本体（不重新安装依赖，利用上层缓存）
 RUN pip install --no-cache-dir --no-deps -e .
 
-# 从构建阶段复制前端产物
+# 从构建阶段复制前端产物（覆盖 src/ 中的 static/）
 COPY --from=frontend-builder /app/src/greyfield_hive/static src/greyfield_hive/static
 
 # 数据目录
@@ -41,7 +47,7 @@ ENV HIVE_DB_PATH=/data/hive.db
 
 EXPOSE 8765
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:8765/health || exit 1
 
 CMD ["uvicorn", "greyfield_hive.main:app", "--host", "0.0.0.0", "--port", "8765"]
