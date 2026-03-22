@@ -25,6 +25,7 @@ from greyfield_hive.api.lessons import router as lessons_router
 from greyfield_hive.api.playbooks import router as playbooks_router
 from greyfield_hive.api.stats import router as stats_router
 from greyfield_hive.api.ws import router as ws_router, register_ws_broadcast
+from greyfield_hive.api.evolution import router as evolution_router
 
 
 _orchestrator: OrchestratorWorker | None = None
@@ -87,6 +88,7 @@ app.include_router(lessons_router)
 app.include_router(playbooks_router)
 app.include_router(stats_router)
 app.include_router(ws_router)
+app.include_router(evolution_router)
 
 
 @app.get("/health")
