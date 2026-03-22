@@ -476,7 +476,7 @@ def tasks_dispatch(
 def tasks_subtask(
     parent_id:  str            = typer.Argument(..., help="父任务 ID"),
     title:      str            = typer.Option(..., "--title", "-t", help="子任务标题"),
-    assignee:   Optional[str]  = typer.Option(None, "--assignee", "-a", help="分配给小主脑"),
+    assignee:   Optional[str]  = typer.Option(None, "--assignee", help="分配给小主脑"),
     priority:   str            = typer.Option("normal", "--priority", "-p", help="优先级"),
     api:        str            = api_url_option,
 ) -> None:
