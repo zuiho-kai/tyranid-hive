@@ -175,6 +175,24 @@ class LessonsBank:
         logger.info(f"[LessonsBank] 清理过期 Lesson {len(expired)} 条（>{days}天未用）")
         return len(expired)
 
+    async def update(self, lesson_id: str, **fields) -> Optional[Lesson]:
+        """更新 Lesson 字段（domain/content/outcome/tags/meta）"""
+        lesson = await self.get(lesson_id)
+        if lesson is None:
+            return None
+        allowed = {"domain", "content", "outcome", "tags", "meta"}
+        for k, v in fields.items():
+            if k not in allowed or v is None:
+                continue
+            # tags 以逗号分隔字符串存储，传入 list 时需序列化
+            if k == "tags" and isinstance(v, list):
+                v = ",".join(v)
+            setattr(lesson, k, v)
+        lesson.updated_at = datetime.now(timezone.utc)
+        await self.db.commit()
+        await self.db.refresh(lesson)
+        return lesson
+
     async def promote_to_playbook(self, lesson_id: str, playbook_id: str) -> Optional[Lesson]:
         """将 Lesson 晋升关联到 Playbook（Evolution Master 调用）"""
         lesson = await self.get(lesson_id)

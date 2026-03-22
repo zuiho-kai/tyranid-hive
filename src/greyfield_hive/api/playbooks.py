@@ -40,6 +40,12 @@ class RecordUsageRequest(BaseModel):
     success: bool
 
 
+class PatchPlaybookRequest(BaseModel):
+    title:   Optional[str] = None
+    content: Optional[str] = None
+    domain:  Optional[str] = None
+
+
 def _pb_dict(pb) -> dict:
     return {
         "id":              pb.id,
@@ -161,6 +167,39 @@ async def crystallize(pb_id: str, db=Depends(get_db)):
     svc = PlaybookService(db)
     try:
         pb = await svc.mark_crystallized(pb_id)
+    except PlaybookNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Playbook 不存在: {pb_id}")
+    return _pb_dict(pb)
+
+
+@router.patch("/{pb_id}")
+async def patch_playbook(pb_id: str, body: PatchPlaybookRequest, db=Depends(get_db)):
+    """部分更新 Playbook 字段（title/content/domain）"""
+    svc = PlaybookService(db)
+    try:
+        pb = await svc.update(pb_id, **body.model_dump(exclude_none=True))
+    except PlaybookNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Playbook 不存在: {pb_id}")
+    return _pb_dict(pb)
+
+
+@router.post("/{pb_id}/deactivate")
+async def deactivate_playbook(pb_id: str, db=Depends(get_db)):
+    """归档 Playbook（设置 is_active=False）"""
+    svc = PlaybookService(db)
+    try:
+        pb = await svc.set_active(pb_id, active=False)
+    except PlaybookNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Playbook 不存在: {pb_id}")
+    return _pb_dict(pb)
+
+
+@router.post("/{pb_id}/activate")
+async def activate_playbook(pb_id: str, db=Depends(get_db)):
+    """重新激活已归档的 Playbook（设置 is_active=True）"""
+    svc = PlaybookService(db)
+    try:
+        pb = await svc.set_active(pb_id, active=True)
     except PlaybookNotFoundError:
         raise HTTPException(status_code=404, detail=f"Playbook 不存在: {pb_id}")
     return _pb_dict(pb)

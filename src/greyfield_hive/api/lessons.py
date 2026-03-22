@@ -27,6 +27,14 @@ class SearchRequest(BaseModel):
     top_k:     int = 5
 
 
+class PatchLessonRequest(BaseModel):
+    domain:  Optional[str] = None
+    content: Optional[str] = None
+    outcome: Optional[str] = None
+    tags:    Optional[list[str]] = None
+    meta:    Optional[dict] = None
+
+
 def _lesson_dict(l) -> dict:
     return {
         "id":          l.id,
@@ -114,6 +122,16 @@ async def purge_expired(days: int = Query(30, ge=1), db=Depends(get_db)):
 
 
 # 动态路径放最后
+
+@router.patch("/{lesson_id}")
+async def patch_lesson(lesson_id: str, body: PatchLessonRequest, db=Depends(get_db)):
+    """部分更新 Lesson 字段（domain/content/outcome/tags/meta）"""
+    bank = LessonsBank(db)
+    lesson = await bank.update(lesson_id, **body.model_dump(exclude_none=True))
+    if lesson is None:
+        raise HTTPException(status_code=404, detail=f"Lesson 不存在: {lesson_id}")
+    return _lesson_dict(lesson)
+
 
 @router.get("/{lesson_id}")
 async def get_lesson(lesson_id: str, db=Depends(get_db)):

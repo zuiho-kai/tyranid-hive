@@ -199,6 +199,29 @@ class PlaybookService:
         logger.info(f"[Playbook] {pb.slug} v{pb.version} 已结晶为专化形态")
         return pb
 
+    async def update(self, pb_id: str, **fields) -> Playbook:
+        """更新 Playbook 字段（title/content/domain）"""
+        pb = await self.get_by_id(pb_id)
+        allowed = {"title", "content", "domain"}
+        for k, v in fields.items():
+            if k in allowed and v is not None:
+                setattr(pb, k, v)
+        pb.updated_at = datetime.now(timezone.utc)
+        await self.db.commit()
+        await self.db.refresh(pb)
+        return pb
+
+    async def set_active(self, pb_id: str, active: bool) -> Playbook:
+        """激活或归档 Playbook（设置 is_active）"""
+        pb = await self.get_by_id(pb_id)
+        pb.is_active = active
+        pb.updated_at = datetime.now(timezone.utc)
+        await self.db.commit()
+        await self.db.refresh(pb)
+        status = "激活" if active else "归档"
+        logger.info(f"[Playbook] {pb.slug} v{pb.version} 已{status}")
+        return pb
+
     # ── 私有 ─────────────────────────────────────────────
 
     async def _get_active(self, slug: str) -> Playbook | None:
