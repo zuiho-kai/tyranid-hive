@@ -295,6 +295,42 @@ export async function trialTask(
   return r.json()
 }
 
+// ── Chain Mode ────────────────────────────────────────────
+
+export interface ChainStageResult {
+  synapse: string
+  returncode: number
+  success: boolean
+  stdout: string
+  stderr: string
+  elapsed_sec: number
+}
+
+export interface ChainResult {
+  task_id: string
+  success: boolean
+  final_output: string
+  results: ChainStageResult[]
+}
+
+export async function chainTask(
+  id: string,
+  synapses: string[],
+  message?: string,
+  domain?: string,
+): Promise<ChainResult> {
+  const r = await fetch(`${BASE}/tasks/${id}/chain`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ synapses, message: message || '', domain: domain || '' }),
+  })
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}))
+    throw new Error(err.detail || `HTTP ${r.status}`)
+  }
+  return r.json()
+}
+
 // ── Events ───────────────────────────────────────────────
 
 export async function fetchEvents(task_id?: string): Promise<BusEvent[]> {

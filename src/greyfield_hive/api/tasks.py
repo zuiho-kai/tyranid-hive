@@ -11,6 +11,7 @@ from greyfield_hive.services.lessons_bank import LessonsBank
 from greyfield_hive.services.playbook_service import PlaybookService
 from greyfield_hive.services.task_service import TaskService, InvalidTransitionError, TaskNotFoundError
 from greyfield_hive.services.trial_race import TrialRaceService
+from greyfield_hive.services.chain_runner import ChainRunnerService
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
@@ -39,6 +40,12 @@ class DispatchRequest(BaseModel):
 
 class TrialRequest(BaseModel):
     synapses: list[str]       # 恰好两个 synapse name
+    message:  str = ""
+    domain:   str = ""
+
+
+class ChainRequest(BaseModel):
+    synapses: list[str]       # 至少两个 synapse name，按顺序执行
     message:  str = ""
     domain:   str = ""
 
@@ -390,4 +397,48 @@ async def analyze_task(task_id: str, db=Depends(get_db)):
             "risks":               result.risks,
             "recommended_state":   result.recommended_state,
         },
+    }
+
+
+@router.post("/{task_id}/chain")
+async def chain_task(task_id: str, body: ChainRequest, db=Depends(get_db)):
+    """Chain Mode —— 顺序多 Agent 协作，前一阶段输出传入下一阶段
+
+    - 至少需要 2 个 synapse
+    - 任一阶段失败则 fail-fast 中止
+    - 返回各阶段结果 + 最终输出
+    """
+    if len(body.synapses) < 2:
+        raise HTTPException(status_code=400, detail="synapses 至少需要两个元素")
+
+    svc = TaskService(db)
+    try:
+        task = await svc.get_by_id(task_id)
+    except TaskNotFoundError:
+        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+
+    chain = ChainRunnerService(db=db)
+    result = await chain.run(
+        task_id=task_id,
+        synapses=body.synapses,
+        message=body.message or task.description or task.title,
+        domain=body.domain,
+        trace_id=task.trace_id or "",
+    )
+
+    return {
+        "task_id":      task_id,
+        "success":      result.success,
+        "final_output": result.final_output,
+        "results": [
+            {
+                "synapse":     r.synapse,
+                "returncode":  r.returncode,
+                "success":     r.success,
+                "stdout":      r.stdout[:500],
+                "stderr":      r.stderr[:200],
+                "elapsed_sec": r.elapsed_sec,
+            }
+            for r in result.results
+        ],
     }

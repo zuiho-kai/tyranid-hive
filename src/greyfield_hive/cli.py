@@ -474,6 +474,53 @@ def tasks_trial(
         raise typer.Exit(1)
 
 
+@tasks_app.command("chain", help="Chain Mode：多个 Synapse 顺序协作")
+def tasks_chain(
+    task_id:  str = typer.Argument(..., help="任务 ID"),
+    synapses: str = typer.Option("code-expert,research-analyst", "--synapses", "-s",
+                                  help="synapse 列表，逗号分隔（至少两个）"),
+    message:  str = typer.Option("", "--message", "-m", help="任务消息（留空使用任务描述）"),
+    domain:   str = typer.Option("", "--domain",  "-d", help="领域（留空自动推断）"),
+    api:      str = api_url_option,
+) -> None:
+    """顺序执行多个 synapse，每阶段输出传入下一阶段"""
+    parts = [s.strip() for s in synapses.split(",") if s.strip()]
+    if len(parts) < 2:
+        err_console.print("错误：--synapses 至少需要两个名称，用逗号分隔")
+        raise typer.Exit(1)
+    if httpx is None:
+        err_console.print("错误：需要安装 httpx。请执行：pip install httpx")
+        raise typer.Exit(1)
+    try:
+        payload: dict = {"synapses": parts}
+        if message:
+            payload["message"] = message
+        if domain:
+            payload["domain"] = domain
+        console.print(f"[cyan]▶[/cyan] Chain Mode 开始：{' → '.join(parts)}…")
+        r = httpx.post(f"{_API_URL}/api/tasks/{task_id}/chain", json=payload, timeout=180)
+        if r.status_code == 404:
+            err_console.print(f"任务不存在：{task_id}")
+            raise typer.Exit(1)
+        r.raise_for_status()
+        data = r.json()
+        success = data.get("success", False)
+        results = data.get("results", [])
+        icon = "✅" if success else "❌"
+        console.print(f"[{'green' if success else 'red'}]{icon}[/] Chain 执行{'完成' if success else '中止'}")
+        for res in results:
+            stage_icon = "✅" if res.get("success") else "❌"
+            console.print(f"  {stage_icon} {res.get('synapse', '?')}  rc={res.get('returncode', '?')}")
+        if data.get("final_output"):
+            console.print(f"\n[bold]最终输出：[/bold]\n{data['final_output'][:300]}")
+    except httpx.ConnectError:
+        err_console.print(f"无法连接到 {_API_URL}，请确认 hive 服务已启动。")
+        raise typer.Exit(1)
+    except httpx.HTTPStatusError as e:
+        err_console.print(f"API 错误 {e.response.status_code}：{e.response.text[:200]}")
+        raise typer.Exit(1)
+
+
 @tasks_app.command("cancel", help="取消任务")
 def tasks_cancel(
     task_id: str = typer.Argument(..., help="任务 ID"),
