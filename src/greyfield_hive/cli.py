@@ -1,14 +1,26 @@
 """Tyranid Hive CLI —— hive 命令行管理工具
 
 用法：
-  hive health                    检查服务状态
-  hive stats                     查看任务统计
-  hive tasks list                列出任务
-  hive tasks create --title "…"  创建任务
-  hive tasks show BT-xxx         查看任务详情
-  hive tasks transition BT-xxx Planning  流转状态
-  hive tasks cancel BT-xxx       取消任务
-  hive synapses                  列出小主脑
+  hive health                         检查服务状态
+  hive stats                          查看任务统计
+  hive tasks list                     列出任务
+  hive tasks create --title "…"       创建任务
+  hive tasks show BT-xxx              查看任务详情
+  hive tasks transition BT-xxx …      流转状态
+  hive tasks cancel BT-xxx            取消任务
+  hive tasks children BT-xxx          列出子任务
+  hive synapses                       列出小主脑
+  hive fitness leaderboard            适存度排行榜
+  hive fitness show <synapse_id>      小主脑适存度详情
+  hive lessons list                   列出经验教训
+  hive lessons add --domain … --content …  添加经验
+  hive lessons search <domain>        搜索经验
+  hive lessons bump <id>              增加命中计数
+  hive lessons delete <id>            删除经验
+  hive playbooks list                 列出作战手册
+  hive playbooks show <slug>          查看手册内容
+  hive playbooks add --slug … --title …  创建手册
+  hive playbooks search <domain>      搜索手册
 """
 
 from __future__ import annotations
@@ -31,10 +43,14 @@ app = typer.Typer(
     help="🧬 Tyranid Hive 虫巢管理工具",
     no_args_is_help=True,
 )
-tasks_app   = typer.Typer(help="任务管理")
-fitness_app = typer.Typer(help="适存度排行榜")
-app.add_typer(tasks_app,   name="tasks")
-app.add_typer(fitness_app, name="fitness")
+tasks_app     = typer.Typer(help="任务管理")
+fitness_app   = typer.Typer(help="适存度排行榜")
+lessons_app   = typer.Typer(help="经验教训基因库")
+playbooks_app = typer.Typer(help="作战手册管理")
+app.add_typer(tasks_app,     name="tasks")
+app.add_typer(fitness_app,   name="fitness")
+app.add_typer(lessons_app,   name="lessons")
+app.add_typer(playbooks_app, name="playbooks")
 
 console = Console()
 err_console = Console(stderr=True, style="bold red")
@@ -735,6 +751,235 @@ def fitness_show(
                 f"{m.get('score', 0):.2f}",
             )
         console.print(m_table)
+
+
+# ── lessons ────────────────────────────────────────────────────────────
+
+_OUTCOME_COLORS: dict[str, str] = {
+    "success": "green",
+    "failure": "red",
+    "partial": "yellow",
+}
+
+
+def _outcome(o: str) -> str:
+    color = _OUTCOME_COLORS.get(o, "white")
+    return f"[{color}]{o}[/{color}]"
+
+
+@lessons_app.command("list", help="列出经验教训")
+def lessons_list(
+    domain:  Optional[str] = typer.Option(None, "--domain", "-d", help="按领域过滤"),
+    limit:   int            = typer.Option(30,   "--limit",  "-n", help="最多显示条数"),
+    api:     str            = api_url_option,
+) -> None:
+    """列出基因库中的经验教训"""
+    params: dict = {"limit": limit}
+    if domain:
+        params["domain"] = domain
+    data = _get("/api/lessons", params=params)
+    if not data:
+        console.print("[yellow]暂无经验教训[/yellow]")
+        return
+    table = Table(title="经验教训基因库", show_header=True, header_style="bold cyan")
+    table.add_column("ID",      style="dim", width=12)
+    table.add_column("领域",    width=12)
+    table.add_column("结果",    width=10)
+    table.add_column("命中数",  justify="right", width=8)
+    table.add_column("内容",    min_width=30)
+    for l in data:
+        table.add_row(
+            (l["id"] or "")[:10],
+            l.get("domain", ""),
+            _outcome(l.get("outcome", "")),
+            str(l.get("frequency", 0)),
+            (l.get("content") or "")[:60],
+        )
+    console.print(table)
+
+
+@lessons_app.command("add", help="添加经验教训")
+def lessons_add(
+    domain:  str = typer.Option(..., "--domain", "-d", help="领域（如 coding/research）"),
+    content: str = typer.Option(..., "--content", "-c", help="经验内容"),
+    outcome: str = typer.Option("success", "--outcome", "-o", help="结果: success/failure/partial"),
+    api:     str = api_url_option,
+) -> None:
+    """向基因库添加一条经验教训"""
+    data = _post("/api/lessons", {"domain": domain, "content": content, "outcome": outcome})
+    console.print(f"[green]✓[/green] 经验已入库 [bold]{data['id'][:10]}[/bold] domain={domain} outcome={outcome}")
+
+
+@lessons_app.command("search", help="按领域和关键词搜索经验")
+def lessons_search(
+    domain:  str = typer.Argument(..., help="领域"),
+    tags:    str = typer.Option("", "--tags", "-t", help="空格分隔的关键词"),
+    top_k:   int = typer.Option(5,  "--top-k", "-k", help="返回最多 N 条"),
+    api:     str = api_url_option,
+) -> None:
+    """检索最相关的经验教训（按衰减评分排序）"""
+    tag_list = [t for t in tags.strip().split() if t] if tags.strip() else []
+    data = _post("/api/lessons/search", {"domain": domain, "tags": tag_list, "top_k": top_k})
+    if not data:
+        console.print("[yellow]未找到相关经验[/yellow]")
+        return
+    for i, l in enumerate(data, 1):
+        color = _OUTCOME_COLORS.get(l.get("outcome", ""), "white")
+        console.print(f"[dim]{i}.[/dim] [{color}]{l.get('outcome','?')}[/{color}] "
+                      f"[cyan]{l.get('domain','')}[/cyan] 命中={l.get('frequency',0)}")
+        console.print(f"   {(l.get('content') or '')[:120]}")
+        console.print()
+
+
+@lessons_app.command("bump", help="增加经验的命中计数")
+def lessons_bump(
+    lesson_id: str = typer.Argument(..., help="经验 ID"),
+    api:       str = api_url_option,
+) -> None:
+    """手动 bump 一条经验的命中频率"""
+    if httpx is None:
+        err_console.print("错误：需要安装 httpx。")
+        raise typer.Exit(1)
+    try:
+        r = httpx.post(f"{_API_URL}/api/lessons/{lesson_id}/bump", timeout=10)
+        if r.status_code == 404:
+            err_console.print(f"经验不存在：{lesson_id}")
+            raise typer.Exit(1)
+        r.raise_for_status()
+        data = r.json()
+        console.print(f"[green]✓[/green] bump 成功，frequency={data.get('frequency', '?')}")
+    except httpx.ConnectError:
+        err_console.print(f"无法连接到 {_API_URL}。")
+        raise typer.Exit(1)
+
+
+@lessons_app.command("delete", help="删除经验教训")
+def lessons_delete(
+    lesson_id: str  = typer.Argument(..., help="经验 ID"),
+    yes:       bool = typer.Option(False, "--yes", "-y", help="跳过确认"),
+    api:       str  = api_url_option,
+) -> None:
+    """硬删除一条经验教训"""
+    if not yes:
+        typer.confirm(f"确认删除经验 {lesson_id}？", abort=True)
+    if httpx is None:
+        err_console.print("错误：需要安装 httpx。")
+        raise typer.Exit(1)
+    try:
+        r = httpx.delete(f"{_API_URL}/api/lessons/{lesson_id}", timeout=10)
+        if r.status_code == 404:
+            err_console.print(f"经验不存在：{lesson_id}")
+            raise typer.Exit(1)
+        if r.status_code in (200, 204):
+            console.print(f"[green]✓[/green] 已删除 {lesson_id}")
+        else:
+            r.raise_for_status()
+    except httpx.ConnectError:
+        err_console.print(f"无法连接到 {_API_URL}。")
+        raise typer.Exit(1)
+
+
+# ── playbooks ───────────────────────────────────────────────────────────
+
+@playbooks_app.command("list", help="列出作战手册")
+def playbooks_list(
+    domain:  Optional[str] = typer.Option(None, "--domain", "-d", help="按领域过滤"),
+    api:     str            = api_url_option,
+) -> None:
+    """列出所有作战手册"""
+    params: dict = {}
+    if domain:
+        params["domain"] = domain
+    data = _get("/api/playbooks", params=params)
+    if not data:
+        console.print("[yellow]暂无作战手册[/yellow]")
+        return
+    table = Table(title="作战手册", show_header=True, header_style="bold cyan")
+    table.add_column("Slug",     style="dim", width=20)
+    table.add_column("标题",     min_width=20)
+    table.add_column("领域",     width=12)
+    table.add_column("版本",     width=6, justify="right")
+    table.add_column("使用数",   width=8, justify="right")
+    table.add_column("成功率",   width=10, justify="right")
+    for p in data:
+        rate = p.get("success_rate") or 0
+        rate_color = "green" if rate >= 0.8 else "yellow" if rate >= 0.5 else "red"
+        table.add_row(
+            (p.get("slug") or "")[:18],
+            (p.get("title") or "")[:30],
+            p.get("domain", ""),
+            f"v{p.get('version', 1)}",
+            str(p.get("use_count", 0)),
+            f"[{rate_color}]{rate:.0%}[/{rate_color}]",
+        )
+    console.print(table)
+
+
+@playbooks_app.command("show", help="查看手册详情")
+def playbooks_show(
+    slug: str = typer.Argument(..., help="手册 Slug"),
+    api:  str = api_url_option,
+) -> None:
+    """显示手册完整内容"""
+    if httpx is None:
+        err_console.print("错误：需要安装 httpx。")
+        raise typer.Exit(1)
+    try:
+        r = httpx.get(f"{_API_URL}/api/playbooks/slug/{slug}", timeout=10)
+        if r.status_code == 404:
+            err_console.print(f"手册不存在：{slug}")
+            raise typer.Exit(1)
+        r.raise_for_status()
+        p = r.json()
+    except httpx.ConnectError:
+        err_console.print(f"无法连接到 {_API_URL}。")
+        raise typer.Exit(1)
+    rate = p.get("success_rate") or 0
+    rate_color = "green" if rate >= 0.8 else "yellow" if rate >= 0.5 else "red"
+    console.print(f"\n[bold]{p.get('title', slug)}[/bold]  v{p.get('version', 1)}")
+    console.print(f"  领域：{p.get('domain', '')}  "
+                  f"使用数：{p.get('use_count', 0)}  "
+                  f"成功率：[{rate_color}]{rate:.0%}[/{rate_color}]")
+    console.print()
+    console.print(p.get("content", ""))
+    console.print()
+
+
+@playbooks_app.command("add", help="创建作战手册")
+def playbooks_add(
+    slug:    str            = typer.Option(..., "--slug",    "-s", help="唯一标识（如 coding-guide）"),
+    title:   str            = typer.Option(..., "--title",   "-t", help="手册标题"),
+    domain:  str            = typer.Option(..., "--domain",  "-d", help="所属领域"),
+    content: str            = typer.Option(..., "--content", "-c", help="手册内容"),
+    api:     str            = api_url_option,
+) -> None:
+    """创建一本新的作战手册"""
+    data = _post("/api/playbooks", {
+        "slug": slug, "title": title, "domain": domain, "content": content,
+    })
+    console.print(f"[green]✓[/green] 手册已创建 slug=[bold]{data.get('slug')}[/bold] v{data.get('version', 1)}")
+
+
+@playbooks_app.command("search", help="按领域和关键词搜索手册")
+def playbooks_search(
+    domain: str = typer.Argument(..., help="领域"),
+    tags:   str = typer.Option("", "--tags", "-t", help="空格分隔的关键词"),
+    top_k:  int = typer.Option(3,  "--top-k", "-k", help="返回最多 N 条"),
+    api:    str = api_url_option,
+) -> None:
+    """检索最相关的作战手册（按质量评分排序）"""
+    tag_list = [t for t in tags.strip().split() if t] if tags.strip() else []
+    data = _post("/api/playbooks/search", {"domain": domain, "tags": tag_list, "top_k": top_k})
+    if not data:
+        console.print("[yellow]未找到相关手册[/yellow]")
+        return
+    for i, p in enumerate(data, 1):
+        rate = p.get("success_rate") or 0
+        rate_color = "green" if rate >= 0.8 else "yellow" if rate >= 0.5 else "red"
+        console.print(f"[dim]{i}.[/dim] [bold]{p.get('title', '')}[/bold] "
+                      f"v{p.get('version',1)} [{rate_color}]{rate:.0%}[/{rate_color}]")
+        console.print(f"   {(p.get('content') or '')[:120]}")
+        console.print()
 
 
 # ── 入口 ──────────────────────────────────────────────────────────────
