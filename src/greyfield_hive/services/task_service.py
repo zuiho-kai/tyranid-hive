@@ -108,17 +108,26 @@ class TaskService:
         state: Optional[TaskState] = None,
         priority: Optional[str] = None,
         assignee: Optional[str] = None,
+        q: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[Task]:
-        q = select(Task).order_by(Task.created_at.desc()).limit(limit).offset(offset)
+        stmt = select(Task).order_by(Task.created_at.desc()).limit(limit).offset(offset)
         if state is not None:
-            q = q.where(Task.state == state)
+            stmt = stmt.where(Task.state == state)
         if priority is not None:
-            q = q.where(Task.priority == priority)
+            stmt = stmt.where(Task.priority == priority)
         if assignee is not None:
-            q = q.where(Task.assignee_synapse == assignee)
-        result = await self.db.execute(q)
+            stmt = stmt.where(Task.assignee_synapse == assignee)
+        if q:
+            # 在 title、description、id 三列做大小写不敏感的模糊搜索
+            pattern = f"%{q}%"
+            stmt = stmt.where(
+                Task.title.ilike(pattern)
+                | Task.description.ilike(pattern)
+                | Task.id.ilike(pattern)
+            )
+        result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
     # ── 状态流转 ──────────────────────────────────────────

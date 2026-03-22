@@ -180,6 +180,7 @@ def stats(
 def tasks_list(
     state:    Optional[str] = typer.Option(None, "--state",    "-s", help="按状态过滤"),
     priority: Optional[str] = typer.Option(None, "--priority", "-p", help="按优先级过滤"),
+    search:   Optional[str] = typer.Option(None, "--search",   "-q", help="关键词搜索（title/description/id）"),
     limit:    int            = typer.Option(20,  "--limit",    "-n", help="最多显示条数"),
     api:      str            = api_url_option,
 ) -> None:
@@ -189,6 +190,8 @@ def tasks_list(
         params["state"] = state
     if priority:
         params["priority"] = priority
+    if search:
+        params["q"] = search
 
     tasks = _get("/api/tasks", params=params)
     if not tasks:

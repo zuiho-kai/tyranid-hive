@@ -94,17 +94,18 @@ async def create_task(body: CreateTaskRequest, db=Depends(get_db)):
 
 @router.get("")
 async def list_tasks(
-    state: Optional[str] = Query(None),
+    state:    Optional[str] = Query(None),
     priority: Optional[str] = Query(None),
     assignee: Optional[str] = Query(None),
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
+    q:        Optional[str] = Query(None, description="关键词搜索（title / description / id）"),
+    limit:    int            = Query(50, ge=1, le=200),
+    offset:   int            = Query(0, ge=0),
     db=Depends(get_db),
 ):
     svc = TaskService(db)
     state_enum = TaskState(state) if state else None
     tasks = await svc.list_tasks(
-        state=state_enum, priority=priority, assignee=assignee,
+        state=state_enum, priority=priority, assignee=assignee, q=q,
         limit=limit, offset=offset,
     )
     return [_task_to_dict(t) for t in tasks]

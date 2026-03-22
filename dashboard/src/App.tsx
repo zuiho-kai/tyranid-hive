@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { fetchTasks, fetchSynapses, fetchStats, createTask, transitionTask } from './api'
 import type { Task, Synapse, BusEvent, TaskStats } from './api'
 import { useHiveWebSocket } from './useWebSocket'
@@ -11,6 +11,9 @@ import CreateTaskModal from './components/CreateTaskModal'
 
 type Tab = 'tasks' | 'genes' | 'synapses'
 
+const STATE_FILTERS = ['', 'Incubating', 'Planning', 'Reviewing', 'Executing', 'Complete', 'Cancelled'] as const
+type StateFilter = typeof STATE_FILTERS[number]
+
 export default function App() {
   const [tab, setTab] = useState<Tab>('tasks')
   const [tasks, setTasks] = useState<Task[]>([])
@@ -19,11 +22,18 @@ export default function App() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [loading, setLoading] = useState(false)
+  // 搜索 + 状态筛选
+  const [search, setSearch] = useState('')
+  const [stateFilter, setStateFilter] = useState<StateFilter>('')
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const refreshTasks = useCallback(async () => {
+  const refreshTasks = useCallback(async (q?: string, state?: string) => {
     setLoading(true)
     try {
-      const [ts, st] = await Promise.all([fetchTasks(), fetchStats()])
+      const params: { q?: string; state?: string } = {}
+      if (q)     params.q     = q
+      if (state) params.state = state
+      const [ts, st] = await Promise.all([fetchTasks(params), fetchStats()])
       setTasks(ts)
       setStats(st)
       if (selectedTask) {
@@ -38,21 +48,35 @@ export default function App() {
   useEffect(() => { refreshTasks() }, [])
   useEffect(() => { fetchSynapses().then(setSynapses) }, [])
 
+  // 搜索防抖 300ms
+  const handleSearchChange = (val: string) => {
+    setSearch(val)
+    if (searchTimer.current) clearTimeout(searchTimer.current)
+    searchTimer.current = setTimeout(() => {
+      refreshTasks(val || undefined, stateFilter || undefined)
+    }, 300)
+  }
+
+  const handleStateFilter = (s: StateFilter) => {
+    setStateFilter(s)
+    refreshTasks(search || undefined, s || undefined)
+  }
+
   const handleWsEvent = useCallback((e: BusEvent) => {
-    if (e.topic.startsWith('task.')) refreshTasks()
-  }, [refreshTasks])
+    if (e.topic.startsWith('task.')) refreshTasks(search || undefined, stateFilter || undefined)
+  }, [refreshTasks, search, stateFilter])
 
   const { connected, events } = useHiveWebSocket(handleWsEvent)
 
   const handleTransition = async (taskId: string, newState: string) => {
     await transitionTask(taskId, newState)
-    await refreshTasks()
+    await refreshTasks(search || undefined, stateFilter || undefined)
   }
 
   const handleCreate = async (title: string, description: string, priority: string) => {
     await createTask({ title, description, priority })
     setShowCreate(false)
-    await refreshTasks()
+    await refreshTasks(search || undefined, stateFilter || undefined)
   }
 
   return (
@@ -68,7 +92,6 @@ export default function App() {
           <span style={{ fontSize: 11, color: connected ? '#22c55e' : '#ef4444' }}>
             {connected ? '● 已连接' : '○ 断线'}
           </span>
-          {/* 使用 /api/tasks/stats 的精确计数 */}
           {stats ? (
             <span style={{ fontSize: 11, color: '#475569' }}>
               <span style={{ color: '#22c55e' }}>{stats.active}</span> 活跃
@@ -82,7 +105,7 @@ export default function App() {
           <button onClick={() => setShowCreate(true)} style={{ padding: '5px 14px', background: '#7c3aed', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
             + 新战团
           </button>
-          <button onClick={refreshTasks} disabled={loading} style={{ padding: '5px 12px', background: '#1e2030', border: '1px solid #2d3148', borderRadius: 6, color: '#94a3b8', cursor: 'pointer', fontSize: 12 }}>
+          <button onClick={() => refreshTasks(search || undefined, stateFilter || undefined)} disabled={loading} style={{ padding: '5px 12px', background: '#1e2030', border: '1px solid #2d3148', borderRadius: 6, color: '#94a3b8', cursor: 'pointer', fontSize: 12 }}>
             {loading ? '…' : '↺'}
           </button>
         </div>
@@ -101,6 +124,56 @@ export default function App() {
           </button>
         ))}
       </nav>
+
+      {/* 搜索 + 状态筛选栏（仅在战团 tab 显示） */}
+      {tab === 'tasks' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', background: '#0d0d10', borderBottom: '1px solid #1e2030', flexShrink: 0, flexWrap: 'wrap' }}>
+          {/* 搜索框 */}
+          <div style={{ position: 'relative', flex: '0 0 220px' }}>
+            <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: '#475569', pointerEvents: 'none' }}>🔍</span>
+            <input
+              value={search}
+              onChange={e => handleSearchChange(e.target.value)}
+              placeholder="搜索战团…"
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                padding: '5px 8px 5px 26px',
+                background: '#1e2030', border: '1px solid #2d3148', borderRadius: 6,
+                color: '#e2e8f0', fontSize: 12, outline: 'none',
+              }}
+            />
+          </div>
+          {/* 状态筛选按钮组 */}
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {STATE_FILTERS.map(s => (
+              <button
+                key={s || 'all'}
+                onClick={() => handleStateFilter(s)}
+                style={{
+                  padding: '3px 10px', fontSize: 11, border: 'none', borderRadius: 4, cursor: 'pointer',
+                  background: stateFilter === s ? '#7c3aed' : '#1e2030',
+                  color: stateFilter === s ? '#fff' : '#64748b',
+                  fontWeight: stateFilter === s ? 600 : 400,
+                }}
+              >
+                {s || '全部'}
+              </button>
+            ))}
+          </div>
+          {/* 搜索结果计数 */}
+          {(search || stateFilter) && (
+            <span style={{ fontSize: 11, color: '#475569', marginLeft: 4 }}>
+              {tasks.length} 条结果
+              <button
+                onClick={() => { setSearch(''); setStateFilter(''); refreshTasks() }}
+                style={{ marginLeft: 6, fontSize: 10, color: '#475569', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+              >
+                清除
+              </button>
+            </span>
+          )}
+        </div>
+      )}
 
       {/* 主体 */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
