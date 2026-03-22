@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import type { Task, BusEvent, AnalysisResult, TrialResult } from '../api'
-import { fetchEvents, patchTask, deleteTask, appendTodo, toggleTodo, analyzeTask, trialTask } from '../api'
+import type { Task, BusEvent, AnalysisResult, TrialResult, ChainResult } from '../api'
+import { fetchEvents, patchTask, deleteTask, appendTodo, toggleTodo, analyzeTask, trialTask, chainTask } from '../api'
 
 const NEXT_STATES: Record<string, string[]> = {
   Incubating:    ['Planning', 'Cancelled'],
@@ -49,6 +49,11 @@ export default function TaskDetail({ task, onTransition, onDelete, onPatch }: Pr
   const [trialing, setTrialing] = useState(false)
   const [trialResult, setTrialResult] = useState<TrialResult | null>(null)
   const [trialError, setTrialError] = useState<string | null>(null)
+  const [chaining, setChaining] = useState(false)
+  const [chainResult, setChainResult] = useState<ChainResult | null>(null)
+  const [chainError, setChainError] = useState<string | null>(null)
+  const [showChainInput, setShowChainInput] = useState(false)
+  const [chainSynapses, setChainSynapses] = useState('overmind,code-expert')
 
   if (!task) {
     return (
@@ -152,6 +157,23 @@ export default function TaskDetail({ task, onTransition, onDelete, onPatch }: Pr
       setTrialError(e instanceof Error ? e.message : '赛马失败')
     } finally {
       setTrialing(false)
+    }
+  }
+
+  const doChain = async () => {
+    const synapses = chainSynapses.split(',').map(s => s.trim()).filter(Boolean)
+    if (synapses.length < 2) { setChainError('链式调用至少需要 2 个小主脑'); return }
+    setChaining(true)
+    setChainResult(null)
+    setChainError(null)
+    setShowChainInput(false)
+    try {
+      const result = await chainTask(task.id, synapses, task.description || task.title)
+      setChainResult(result)
+    } catch (e: unknown) {
+      setChainError(e instanceof Error ? e.message : '链式调用失败')
+    } finally {
+      setChaining(false)
     }
   }
 
@@ -262,6 +284,32 @@ export default function TaskDetail({ task, onTransition, onDelete, onPatch }: Pr
           >
             {trialing ? '⚔️ 赛马中…' : '⚔️ 赛马'}
           </button>
+          <button
+            onClick={() => setShowChainInput(v => !v)}
+            disabled={chaining}
+            style={{ padding: '5px 14px', background: chaining ? '#1a1a2e' : '#1e1b4b', border: 'none', borderRadius: 6, color: chaining ? '#818cf8' : '#c7d2fe', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+          >
+            {chaining ? '🔗 链式中…' : '🔗 链式调用'}
+          </button>
+        </div>
+      )}
+
+      {/* 链式调用输入 */}
+      {!editing && showChainInput && (
+        <div style={{ marginBottom: 16, padding: '10px 14px', background: '#13131a', borderRadius: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input
+            value={chainSynapses}
+            onChange={e => setChainSynapses(e.target.value)}
+            placeholder="小主脑链（逗号分隔，≥2）"
+            style={{ flex: 1, padding: '4px 8px', background: '#0d0d10', border: '1px solid #2d3148', borderRadius: 4, color: '#e2e8f0', fontSize: 12, outline: 'none' }}
+          />
+          <button
+            onClick={doChain}
+            disabled={chaining}
+            style={{ padding: '4px 12px', background: '#4338ca', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', fontSize: 12 }}
+          >
+            执行
+          </button>
         </div>
       )}
 
@@ -303,6 +351,33 @@ export default function TaskDetail({ task, onTransition, onDelete, onPatch }: Pr
                 <span>rc={res.returncode}</span>
               </div>
             ))}
+          </div>
+        </Section>
+      )}
+
+      {/* 链式调用结果 */}
+      {chainError && (
+        <div style={{ marginBottom: 12, padding: '8px 12px', background: '#1a0a0a', border: '1px solid #7f1d1d', borderRadius: 6, fontSize: 12, color: '#f87171' }}>
+          ⚠ {chainError}
+        </div>
+      )}
+      {chainResult && (
+        <Section title={`链式调用结果 (${chainResult.success ? '✅ 成功' : '❌ 失败'})`}>
+          <div style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {chainResult.results.map((stage, i) => (
+              <div key={i} style={{ display: 'flex', gap: 8, padding: '4px 0', borderBottom: '1px solid #1e2030', color: '#64748b' }}>
+                <span style={{ color: '#374151', flexShrink: 0 }}>#{i + 1}</span>
+                <span style={{ color: stage.success ? '#22c55e' : '#ef4444', fontWeight: 600, minWidth: 120 }}>{stage.synapse}</span>
+                <span>rc={stage.returncode}</span>
+                <span style={{ color: '#374151' }}>{stage.elapsed_sec.toFixed(1)}s</span>
+                {stage.stdout && <span style={{ color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{stage.stdout.slice(0, 80)}</span>}
+              </div>
+            ))}
+            {chainResult.final_output && (
+              <div style={{ marginTop: 6, padding: '6px 8px', background: '#0d0d10', borderRadius: 4, color: '#94a3b8', fontSize: 11, maxHeight: 120, overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
+                {chainResult.final_output.slice(0, 500)}
+              </div>
+            )}
           </div>
         </Section>
       )}
