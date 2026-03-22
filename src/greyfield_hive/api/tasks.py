@@ -42,6 +42,10 @@ class TodosRequest(BaseModel):
     todos: list[dict]
 
 
+class AppendTodoRequest(BaseModel):
+    title: str
+
+
 class PatchTaskRequest(BaseModel):
     title:       Optional[str] = None
     description: Optional[str] = None
@@ -246,4 +250,28 @@ async def update_todos(task_id: str, body: TodosRequest, db=Depends(get_db)):
         task = await svc.update_todos(task_id, body.todos)
     except TaskNotFoundError:
         raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+    return _task_to_dict(task)
+
+
+@router.post("/{task_id}/todos", status_code=201)
+async def append_todo(task_id: str, body: AppendTodoRequest, db=Depends(get_db)):
+    """追加单条 Todo，不替换已有清单"""
+    svc = TaskService(db)
+    try:
+        task = await svc.append_todo(task_id, body.title)
+    except TaskNotFoundError:
+        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+    return _task_to_dict(task)
+
+
+@router.patch("/{task_id}/todos/{index}")
+async def toggle_todo(task_id: str, index: int, db=Depends(get_db)):
+    """切换指定索引 Todo 的完成状态（0-based）"""
+    svc = TaskService(db)
+    try:
+        task = await svc.toggle_todo(task_id, index)
+    except TaskNotFoundError:
+        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+    except IndexError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     return _task_to_dict(task)

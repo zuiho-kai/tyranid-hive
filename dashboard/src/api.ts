@@ -133,6 +133,20 @@ export async function fetchStats(): Promise<TaskStats> {
   return r.json()
 }
 
+export async function appendTodo(id: string, title: string): Promise<Task> {
+  const r = await fetch(`${BASE}/tasks/${id}/todos`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  })
+  return r.json()
+}
+
+export async function toggleTodo(id: string, index: number): Promise<Task> {
+  const r = await fetch(`${BASE}/tasks/${id}/todos/${index}`, { method: 'PATCH' })
+  return r.json()
+}
+
 export async function patchTask(id: string, fields: { title?: string; description?: string; priority?: string }): Promise<Task> {
   const r = await fetch(`${BASE}/tasks/${id}`, {
     method: 'PATCH',

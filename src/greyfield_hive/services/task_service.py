@@ -247,6 +247,30 @@ class TaskService:
         await self.db.refresh(task)
         return task
 
+    async def append_todo(self, task_id: str, title: str) -> Task:
+        """追加单条 Todo（不替换已有清单）"""
+        task = await self.get_by_id(task_id)
+        todos = list(task.todos or [])
+        todos.append({"id": str(uuid.uuid4()), "title": title, "done": False})
+        task.todos = todos
+        task.updated_at = datetime.now(timezone.utc)
+        await self.db.commit()
+        await self.db.refresh(task)
+        return task
+
+    async def toggle_todo(self, task_id: str, index: int) -> Task:
+        """切换指定索引 Todo 的完成状态；索引越界抛 IndexError"""
+        task = await self.get_by_id(task_id)
+        todos = list(task.todos or [])
+        if index < 0 or index >= len(todos):
+            raise IndexError(f"Todo 索引越界: {index}，当前共 {len(todos)} 条")
+        todos[index] = {**todos[index], "done": not todos[index].get("done", False)}
+        task.todos = todos
+        task.updated_at = datetime.now(timezone.utc)
+        await self.db.commit()
+        await self.db.refresh(task)
+        return task
+
     async def update_exec_mode(self, task_id: str, exec_mode: str) -> Task:
         from greyfield_hive.models.task import ExecutionMode
         task = await self.get_by_id(task_id)

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { Task } from '../api'
-import { fetchEvents, patchTask, deleteTask } from '../api'
+import { fetchEvents, patchTask, deleteTask, appendTodo, toggleTodo } from '../api'
 import type { BusEvent } from '../api'
 
 const NEXT_STATES: Record<string, string[]> = {
@@ -42,6 +42,8 @@ export default function TaskDetail({ task, onTransition, onDelete, onPatch }: Pr
   const [editPriority, setEditPriority] = useState('normal')
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [newTodo, setNewTodo] = useState('')
+  const [addingTodo, setAddingTodo] = useState(false)
 
   if (!task) {
     return (
@@ -99,6 +101,23 @@ export default function TaskDetail({ task, onTransition, onDelete, onPatch }: Pr
       onDelete(task.id)
     } finally {
       setDeleting(false)
+    }
+  }
+
+  const doToggleTodo = async (index: number) => {
+    const updated = await toggleTodo(task.id, index)
+    onPatch(updated)
+  }
+
+  const doAddTodo = async () => {
+    if (!newTodo.trim()) return
+    setAddingTodo(true)
+    try {
+      const updated = await appendTodo(task.id, newTodo.trim())
+      onPatch(updated)
+      setNewTodo('')
+    } finally {
+      setAddingTodo(false)
     }
   }
 
@@ -193,16 +212,36 @@ export default function TaskDetail({ task, onTransition, onDelete, onPatch }: Pr
       )}
 
       {/* Todos */}
-      {(task.todos?.length ?? 0) > 0 && (
-        <Section title="子任务">
-          {task.todos.map((todo, i) => (
-            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '4px 0', fontSize: 13 }}>
-              <span style={{ color: todo.done ? '#22c55e' : '#475569', marginTop: 2 }}>{todo.done ? '✓' : '○'}</span>
-              <span style={{ color: todo.done ? '#475569' : '#e2e8f0', textDecoration: todo.done ? 'line-through' : 'none' }}>{todo.title}</span>
-            </div>
-          ))}
-        </Section>
-      )}
+      <Section title={`子任务 (${task.todos?.length ?? 0})`}>
+        {(task.todos?.length ?? 0) > 0 && task.todos.map((todo, i) => (
+          <div key={i}
+            onClick={() => doToggleTodo(i)}
+            style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '4px 0', fontSize: 13, cursor: 'pointer' }}
+          >
+            <span style={{ color: todo.done ? '#22c55e' : '#475569', marginTop: 2, userSelect: 'none' }}>{todo.done ? '✓' : '○'}</span>
+            <span style={{ color: todo.done ? '#475569' : '#e2e8f0', textDecoration: todo.done ? 'line-through' : 'none' }}>{todo.title}</span>
+          </div>
+        ))}
+        {/* 新增 Todo 输入框 */}
+        {!editing && (
+          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+            <input
+              value={newTodo}
+              onChange={e => setNewTodo(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && doAddTodo()}
+              placeholder="新增子任务…"
+              style={{ flex: 1, padding: '4px 8px', background: '#0d0d10', border: '1px solid #2d3148', borderRadius: 4, color: '#e2e8f0', fontSize: 12, outline: 'none' }}
+            />
+            <button
+              onClick={doAddTodo}
+              disabled={addingTodo || !newTodo.trim()}
+              style={{ padding: '4px 10px', background: '#1e2030', border: '1px solid #2d3148', borderRadius: 4, color: '#94a3b8', cursor: 'pointer', fontSize: 11 }}
+            >
+              +
+            </button>
+          </div>
+        )}
+      </Section>
 
       {/* 流转记录 */}
       {(task.flow_log?.length ?? 0) > 0 && (
