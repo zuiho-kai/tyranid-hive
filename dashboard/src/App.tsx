@@ -73,6 +73,16 @@ export default function App() {
     await refreshTasks(search || undefined, stateFilter || undefined)
   }
 
+  const handleDelete = (taskId: string) => {
+    setTasks(ts => ts.filter(t => t.id !== taskId))
+    if (selectedTask?.id === taskId) setSelectedTask(null)
+  }
+
+  const handlePatch = (updated: Task) => {
+    setTasks(ts => ts.map(t => t.id === updated.id ? updated : t))
+    if (selectedTask?.id === updated.id) setSelectedTask(updated)
+  }
+
   const handleCreate = async (title: string, description: string, priority: string) => {
     await createTask({ title, description, priority })
     setShowCreate(false)
@@ -180,7 +190,7 @@ export default function App() {
         {tab === 'tasks' && (
           <>
             <TaskList tasks={tasks} selected={selectedTask} onSelect={setSelectedTask} />
-            <TaskDetail task={selectedTask} onTransition={handleTransition} onRefresh={refreshTasks} />
+            <TaskDetail task={selectedTask} onTransition={handleTransition} onRefresh={refreshTasks} onDelete={handleDelete} onPatch={handlePatch} />
             <EventStream events={events} />
           </>
         )}

@@ -1,10 +1,12 @@
 """任务删除 API 测试 —— DELETE /api/tasks/{id}, /api/tasks/bulk, /api/tasks/cleanup"""
 
+import asyncio
 import pytest
 from httpx import AsyncClient, ASGITransport
 
 from greyfield_hive.main import app
 from greyfield_hive.db import engine, Base
+from greyfield_hive.services.event_bus import EventBus, TOPIC_TASK_DELETED
 
 
 @pytest.fixture(autouse=True)
@@ -211,3 +213,49 @@ async def test_cleanup_default_days(client):
     r = await client.delete("/api/tasks/cleanup")
     assert r.status_code == 200
     assert "deleted" in r.json()
+
+
+# ── task.deleted 事件广播 ───────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_delete_publishes_task_deleted_event(client):
+    """删除任务后，事件总线广播 task.deleted 事件"""
+    from greyfield_hive.services.event_bus import get_event_bus
+
+    bus = get_event_bus()
+    q = bus.subscribe(TOPIC_TASK_DELETED)
+    try:
+        task = await _create(client, "事件测试任务")
+        r = await client.delete(f"/api/tasks/{task['id']}")
+        assert r.status_code == 204
+        event = await asyncio.wait_for(q.get(), timeout=2.0)
+        assert event.payload["task_id"] == task["id"]
+        assert event.payload["title"] == "事件测试任务"
+    finally:
+        bus.unsubscribe(TOPIC_TASK_DELETED, q)
+
+
+@pytest.mark.asyncio
+async def test_bulk_delete_publishes_events_for_each(client):
+    """批量删除时，每个被删除任务都触发 task.deleted 事件"""
+    from greyfield_hive.services.event_bus import get_event_bus
+
+    bus = get_event_bus()
+    q = bus.subscribe(TOPIC_TASK_DELETED)
+    try:
+        t1 = await _create(client, "批量删除A")
+        t2 = await _create(client, "批量删除B")
+        r = await client.request(
+            "DELETE", "/api/tasks/bulk",
+            json={"task_ids": [t1["id"], t2["id"]]},
+        )
+        assert r.status_code == 200
+        # 等待两个事件
+        received_ids: list[str] = []
+        for _ in range(2):
+            event = await asyncio.wait_for(q.get(), timeout=2.0)
+            received_ids.append(event.payload["task_id"])
+        assert t1["id"] in received_ids
+        assert t2["id"] in received_ids
+    finally:
+        bus.unsubscribe(TOPIC_TASK_DELETED, q)

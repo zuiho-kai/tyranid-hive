@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { Task } from '../api'
-import { fetchEvents } from '../api'
+import { fetchEvents, patchTask, deleteTask } from '../api'
 import type { BusEvent } from '../api'
 
 const NEXT_STATES: Record<string, string[]> = {
@@ -19,16 +19,29 @@ const STATE_COLOR: Record<string, string> = {
   Complete: '#475569', Dormant: '#ef4444', Cancelled: '#374151',
 }
 
+const PRIORITIES = ['critical', 'high', 'normal', 'low'] as const
+const PRIORITY_COLOR: Record<string, string> = {
+  critical: '#ef4444', high: '#f97316', normal: '#94a3b8', low: '#475569',
+}
+
 interface Props {
   task: Task | null
   onTransition: (id: string, state: string) => Promise<void>
-  onRefresh: () => void
+  onRefresh: (q?: string, state?: string) => void
+  onDelete: (id: string) => void
+  onPatch: (task: Task) => void
 }
 
-export default function TaskDetail({ task, onTransition, onRefresh: _onRefresh }: Props) {
+export default function TaskDetail({ task, onTransition, onDelete, onPatch }: Props) {
   const [transitioning, setTransitioning] = useState(false)
   const [events, setEvents] = useState<BusEvent[] | null>(null)
   const [showEvents, setShowEvents] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [editTitle, setEditTitle] = useState('')
+  const [editDesc, setEditDesc] = useState('')
+  const [editPriority, setEditPriority] = useState('normal')
+  const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   if (!task) {
     return (
@@ -54,31 +67,110 @@ export default function TaskDetail({ task, onTransition, onRefresh: _onRefresh }
     setShowEvents(v => !v)
   }
 
+  const startEdit = () => {
+    setEditTitle(task.title)
+    setEditDesc(task.description ?? '')
+    setEditPriority(task.priority ?? 'normal')
+    setEditing(true)
+  }
+
+  const cancelEdit = () => setEditing(false)
+
+  const saveEdit = async () => {
+    setSaving(true)
+    try {
+      const updated = await patchTask(task.id, {
+        title: editTitle,
+        description: editDesc,
+        priority: editPriority,
+      })
+      onPatch(updated)
+      setEditing(false)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const doDelete = async () => {
+    if (!confirm(`确认删除战团「${task.title}」？此操作不可撤销。`)) return
+    setDeleting(true)
+    try {
+      await deleteTask(task.id)
+      onDelete(task.id)
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
       {/* 头部 */}
       <div style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-          <span style={{ width: 10, height: 10, borderRadius: '50%', background: dot, display: 'inline-block' }} />
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{task.title}</h2>
-        </div>
-        <div style={{ display: 'flex', gap: 12, fontSize: 12, color: '#64748b' }}>
-          <span>{task.id}</span>
-          <span>·</span>
-          <span style={{ color: dot }}>{task.state}</span>
-          {task.assignee_synapse && <><span>·</span><span>→ {task.assignee_synapse}</span></>}
-          {task.exec_mode && <><span>·</span><span>模式: {task.exec_mode}</span></>}
-        </div>
+        {editing ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <input
+              value={editTitle}
+              onChange={e => setEditTitle(e.target.value)}
+              style={{ fontSize: 16, fontWeight: 700, background: '#1e2030', border: '1px solid #2d3148', borderRadius: 6, padding: '6px 10px', color: '#e2e8f0', outline: 'none' }}
+            />
+            <textarea
+              value={editDesc}
+              onChange={e => setEditDesc(e.target.value)}
+              rows={3}
+              placeholder="任务描述（可选）"
+              style={{ fontSize: 13, background: '#1e2030', border: '1px solid #2d3148', borderRadius: 6, padding: '6px 10px', color: '#94a3b8', outline: 'none', resize: 'vertical' }}
+            />
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <span style={{ fontSize: 12, color: '#475569' }}>优先级：</span>
+              {PRIORITIES.map(p => (
+                <button key={p} onClick={() => setEditPriority(p)} style={{
+                  padding: '3px 10px', fontSize: 11, border: 'none', borderRadius: 4, cursor: 'pointer',
+                  background: editPriority === p ? PRIORITY_COLOR[p] : '#1e2030',
+                  color: editPriority === p ? '#fff' : '#64748b',
+                  fontWeight: editPriority === p ? 600 : 400,
+                }}>{p}</button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={saveEdit} disabled={saving || !editTitle.trim()} style={{ padding: '5px 16px', background: '#7c3aed', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', fontSize: 12 }}>
+                {saving ? '保存中…' : '保存'}
+              </button>
+              <button onClick={cancelEdit} style={{ padding: '5px 12px', background: '#1e2030', border: '1px solid #2d3148', borderRadius: 6, color: '#64748b', cursor: 'pointer', fontSize: 12 }}>
+                取消
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <span style={{ width: 10, height: 10, borderRadius: '50%', background: dot, display: 'inline-block' }} />
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, flex: 1 }}>{task.title}</h2>
+              <button onClick={startEdit} title="编辑" style={{ padding: '4px 8px', background: '#1e2030', border: '1px solid #2d3148', borderRadius: 6, color: '#64748b', cursor: 'pointer', fontSize: 11 }}>编辑</button>
+              <button onClick={doDelete} disabled={deleting} title="删除" style={{ padding: '4px 8px', background: '#1e2030', border: '1px solid #3d1a1a', borderRadius: 6, color: '#ef4444', cursor: 'pointer', fontSize: 11 }}>
+                {deleting ? '…' : '删除'}
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: 12, fontSize: 12, color: '#64748b', flexWrap: 'wrap' }}>
+              <span>{task.id}</span>
+              <span>·</span>
+              <span style={{ color: dot }}>{task.state}</span>
+              <span>·</span>
+              <span style={{ color: PRIORITY_COLOR[task.priority] ?? '#94a3b8' }}>{task.priority}</span>
+              {task.assignee_synapse && <><span>·</span><span>→ {task.assignee_synapse}</span></>}
+              {task.exec_mode && <><span>·</span><span>模式: {task.exec_mode}</span></>}
+            </div>
+          </>
+        )}
       </div>
 
-      {task.description && (
+      {!editing && task.description && (
         <div style={{ padding: '10px 14px', background: '#13131a', borderRadius: 8, fontSize: 13, color: '#94a3b8', marginBottom: 16, lineHeight: 1.6 }}>
           {task.description}
         </div>
       )}
 
       {/* 操作按钮 */}
-      {nextStates.length > 0 && (
+      {!editing && nextStates.length > 0 && (
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 11, color: '#475569', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1 }}>流转到</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>

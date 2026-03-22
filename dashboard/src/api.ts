@@ -131,6 +131,19 @@ export async function fetchStats(): Promise<TaskStats> {
   return r.json()
 }
 
+export async function patchTask(id: string, fields: { title?: string; description?: string; priority?: string }): Promise<Task> {
+  const r = await fetch(`${BASE}/tasks/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  })
+  return r.json()
+}
+
+export async function deleteTask(id: string): Promise<void> {
+  await fetch(`${BASE}/tasks/${id}`, { method: 'DELETE' })
+}
+
 export async function bulkTransition(task_ids: string[], new_state: string, agent = 'dashboard', reason = ''): Promise<{ ok: string[]; failed: { id: string; reason: string }[] }> {
   const r = await fetch(`${BASE}/tasks/bulk/transition`, {
     method: 'POST',

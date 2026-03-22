@@ -28,6 +28,7 @@ from greyfield_hive.services.event_bus import (
     TOPIC_TASK_COMPLETED,
     TOPIC_TASK_STALLED,
     TOPIC_TASK_DISPATCH,
+    TOPIC_TASK_DELETED,
 )
 
 
@@ -244,21 +245,41 @@ class TaskService:
     async def delete_task(self, task_id: str) -> None:
         """硬删除单个任务；任务不存在时抛出 TaskNotFoundError"""
         task = await self.get_by_id(task_id)
+        trace_id = task.trace_id
+        title    = task.title
         await self.db.delete(task)
         await self.db.commit()
+        await self.bus.publish(
+            topic=TOPIC_TASK_DELETED,
+            trace_id=trace_id,
+            event_type="task.deleted",
+            producer="task_service",
+            payload={"task_id": task_id, "title": title},
+        )
+        logger.info(f"[TaskService] 删除任务 {task_id}: {title}")
 
     async def bulk_delete(self, task_ids: list[str]) -> dict:
         """批量硬删除；返回 {deleted: N, not_found: [...]}"""
         deleted = 0
         not_found: list[str] = []
+        deleted_info: list[dict] = []
         for tid in task_ids:
             try:
                 task = await self.get_by_id(tid)
+                deleted_info.append({"task_id": tid, "trace_id": task.trace_id, "title": task.title})
                 await self.db.delete(task)
                 deleted += 1
             except TaskNotFoundError:
                 not_found.append(tid)
         await self.db.commit()
+        for info in deleted_info:
+            await self.bus.publish(
+                topic=TOPIC_TASK_DELETED,
+                trace_id=info["trace_id"],
+                event_type="task.deleted",
+                producer="task_service",
+                payload={"task_id": info["task_id"], "title": info["title"]},
+            )
         return {"deleted": deleted, "not_found": not_found}
 
     async def delete_old_completed(self, days: int = 30) -> dict:
