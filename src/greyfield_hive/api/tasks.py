@@ -33,6 +33,12 @@ class DispatchRequest(BaseModel):
     message:  str = ""
 
 
+class TrialRequest(BaseModel):
+    synapses: list[str]       # 恰好两个 synapse name
+    message:  str = ""
+    domain:   str = ""
+
+
 class ProgressRequest(BaseModel):
     agent:   str
     content: str
@@ -210,6 +216,47 @@ async def transition_task(task_id: str, body: TransitionRequest, db=Depends(get_
     except InvalidTransitionError as e:
         raise HTTPException(status_code=422, detail=str(e))
     return _task_to_dict(task)
+
+
+@router.post("/{task_id}/trial")
+async def trial_task(task_id: str, body: TrialRequest, db=Depends(get_db)):
+    """赛马：两个 synapse 并行竞争同一任务，胜者经验自动入库"""
+    from greyfield_hive.services.task_service import TaskService, TaskNotFoundError
+    if len(body.synapses) != 2:
+        raise HTTPException(status_code=400, detail="synapses 必须恰好包含两个元素")
+    # 验证任务存在
+    svc = TaskService(db)
+    try:
+        task = await svc.get_by_id(task_id)
+    except TaskNotFoundError:
+        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+
+    from greyfield_hive.services.trial_race import TrialRaceService
+    race = TrialRaceService(db=db)
+    result = await race.run(
+        task_id=task_id,
+        synapse_a=body.synapses[0],
+        synapse_b=body.synapses[1],
+        message=body.message or task.description or task.title,
+        domain=body.domain,
+        trace_id=task.trace_id or "",
+    )
+
+    return {
+        "task_id":  task_id,
+        "winner":   result.winner,
+        "tie":      result.tie,
+        "results": {
+            s: {
+                "returncode": r.returncode,
+                "success":    r.success,
+                "stdout":     r.stdout[:500],
+                "stderr":     r.stderr[:200],
+                "elapsed_sec": r.elapsed_sec,
+            }
+            for s, r in result.results.items()
+        },
+    }
 
 
 @router.post("/{task_id}/dispatch")
