@@ -184,11 +184,60 @@ export async function fetchLessons(domain?: string): Promise<Lesson[]> {
   return r.json()
 }
 
+export async function createLesson(payload: { domain: string; content: string; outcome?: string; tags?: string[] }): Promise<Lesson> {
+  const r = await fetch(`${BASE}/lessons`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  return r.json()
+}
+
+export async function bumpLesson(id: string): Promise<Lesson> {
+  const r = await fetch(`${BASE}/lessons/${id}/bump`, { method: 'POST' })
+  return r.json()
+}
+
 // ── Playbooks ────────────────────────────────────────────
 
 export async function fetchPlaybooks(domain?: string): Promise<Playbook[]> {
   const url = domain ? `${BASE}/playbooks?domain=${domain}` : `${BASE}/playbooks`
   const r = await fetch(url)
+  return r.json()
+}
+
+export async function createPlaybook(payload: { slug: string; domain: string; title: string; content: string }): Promise<Playbook> {
+  const r = await fetch(`${BASE}/playbooks`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  return r.json()
+}
+
+// ── Overview Stats ───────────────────────────────────────
+
+export interface OverviewStats {
+  tasks: {
+    total: number
+    by_state: Record<string, number>
+  }
+  lessons: {
+    total: number
+    by_domain: Record<string, number>
+    by_outcome: Record<string, number>
+    top_active: { id: string; domain: string; content: string; frequency: number }[]
+  }
+  playbooks: {
+    total: number
+    active: number
+    crystallized: number
+    by_domain: Record<string, number>
+  }
+}
+
+export async function fetchOverviewStats(): Promise<OverviewStats> {
+  const r = await fetch(`${BASE}/stats/overview`)
   return r.json()
 }
 

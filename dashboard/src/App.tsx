@@ -7,9 +7,10 @@ import TaskDetail from './components/TaskDetail'
 import EventStream from './components/EventStream'
 import GeneLibrary from './components/GeneLibrary'
 import SynapsePanel from './components/SynapsePanel'
+import OverviewStats from './components/OverviewStats'
 import CreateTaskModal from './components/CreateTaskModal'
 
-type Tab = 'tasks' | 'genes' | 'synapses'
+type Tab = 'tasks' | 'genes' | 'synapses' | 'stats'
 
 const STATE_FILTERS = ['', 'Incubating', 'Planning', 'Reviewing', 'Executing', 'Complete', 'Cancelled'] as const
 type StateFilter = typeof STATE_FILTERS[number]
@@ -142,14 +143,14 @@ export default function App() {
 
       {/* Tab */}
       <nav style={{ display: 'flex', gap: 2, padding: '8px 20px 0', borderBottom: '1px solid #1e2030', background: '#13131a', flexShrink: 0 }}>
-        {(['tasks', 'genes', 'synapses'] as Tab[]).map(t => (
+        {(['tasks', 'genes', 'synapses', 'stats'] as Tab[]).map(t => (
           <button key={t} onClick={() => setTab(t)} style={{
             padding: '6px 16px', border: 'none', borderRadius: '6px 6px 0 0', cursor: 'pointer', fontSize: 13,
             background: tab === t ? '#1e2030' : 'transparent',
             color: tab === t ? '#a78bfa' : '#64748b',
             borderBottom: tab === t ? '2px solid #7c3aed' : '2px solid transparent',
           }}>
-            {t === 'tasks' ? '🐛 战团' : t === 'genes' ? '🧬 基因库' : '🧠 小主脑'}
+            {t === 'tasks' ? '🐛 战团' : t === 'genes' ? '🧬 基因库' : t === 'synapses' ? '🧠 小主脑' : '📊 统计'}
           </button>
         ))}
       </nav>
@@ -228,6 +229,7 @@ export default function App() {
         )}
         {tab === 'genes' && <GeneLibrary />}
         {tab === 'synapses' && <SynapsePanel synapses={synapses} />}
+        {tab === 'stats' && <OverviewStats />}
       </div>
 
       {showCreate && <CreateTaskModal onConfirm={handleCreate} onCancel={() => setShowCreate(false)} />}

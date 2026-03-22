@@ -23,6 +23,7 @@ from greyfield_hive.api.units import router as units_router
 from greyfield_hive.api.events import router as events_router
 from greyfield_hive.api.lessons import router as lessons_router
 from greyfield_hive.api.playbooks import router as playbooks_router
+from greyfield_hive.api.stats import router as stats_router
 from greyfield_hive.api.ws import router as ws_router, register_ws_broadcast
 
 
@@ -84,6 +85,7 @@ app.include_router(units_router)
 app.include_router(events_router)
 app.include_router(lessons_router)
 app.include_router(playbooks_router)
+app.include_router(stats_router)
 app.include_router(ws_router)
 
 
