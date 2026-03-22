@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+  hive:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tyranid-hive:latest
+    container_name: tyranid-hive
+    restart: unless-stopped
+    ports:
+      - "8765:8765"
+    volumes:
+      # 持久化数据库
+      - hive_data:/data
+      # 可选：挂载本地 config 目录覆盖容器内配置
+      - ./config:/app/config:ro
+    environment:
+      - HIVE_DB_PATH=/data/hive.db
+      # 可选：覆盖默认配置
+      # - HIVE_DATABASE_URL=sqlite+aiosqlite:////data/hive.db
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8765/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  hive_data:
+    driver: local

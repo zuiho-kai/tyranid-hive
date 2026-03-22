@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# 测试和开发
+tests/
+.coverage
+coverage.xml
+htmlcov/
+
+# 数据库（本地开发数据）
+data/
+*.db
+
+# Git
+.git/
+.gitignore
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+
+# Node（dashboard 构建产物由 Dockerfile 内多阶段构建生成）
+dashboard/node_modules/
+dashboard/dist/
+
+# 文档
+docs/
+*.md
+!README.md
+
+# 其他
+*.bat
+*.exe
+*.log
