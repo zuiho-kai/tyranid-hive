@@ -10,6 +10,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from loguru import logger
 
+from greyfield_hive.middleware import RequestLoggingMiddleware
+
 _STATIC_DIR = Path(__file__).parent / "static"
 
 from greyfield_hive.db import init_db
@@ -74,6 +76,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(RequestLoggingMiddleware)
 
 # 注册路由
 app.include_router(tasks_router)
