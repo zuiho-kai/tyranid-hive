@@ -2,10 +2,15 @@
 
 import asyncio
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from loguru import logger
+
+_STATIC_DIR = Path(__file__).parent / "static"
 
 from greyfield_hive.db import init_db
 from greyfield_hive.services.event_bus import get_event_bus
@@ -90,6 +95,10 @@ async def health():
 
 @app.get("/")
 async def root():
+    # 有静态文件时直接返回 dashboard
+    index = _STATIC_DIR / "index.html"
+    if index.exists():
+        return FileResponse(str(index))
     return {
         "hive": "Tyranid Hive",
         "docs": "/docs",
@@ -99,3 +108,8 @@ async def root():
         "events": "/api/events",
         "websocket": "/ws",
     }
+
+
+# 静态资源（dashboard build 产物）
+if _STATIC_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=str(_STATIC_DIR / "assets")), name="assets")
