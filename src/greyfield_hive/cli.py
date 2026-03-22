@@ -300,6 +300,58 @@ def tasks_transition(
     console.print(f"[green]✓[/green] {task_id} → {_state(task['state'])}")
 
 
+@tasks_app.command("delete", help="删除任务（硬删除）")
+def tasks_delete(
+    task_id: str = typer.Argument(..., help="任务 ID"),
+    yes:     bool = typer.Option(False, "--yes", "-y", help="跳过确认"),
+    api:     str  = api_url_option,
+) -> None:
+    """硬删除单个任务"""
+    if not yes:
+        typer.confirm(f"确认删除任务 {task_id}？此操作不可撤销", abort=True)
+    if httpx is None:
+        err_console.print("错误：需要安装 httpx。请执行：pip install httpx")
+        raise typer.Exit(1)
+    try:
+        r = httpx.delete(f"{_API_URL}/api/tasks/{task_id}", timeout=10)
+        if r.status_code == 204:
+            console.print(f"[green]✓[/green] 任务 [bold]{task_id}[/bold] 已删除")
+        elif r.status_code == 404:
+            err_console.print(f"任务不存在：{task_id}")
+            raise typer.Exit(1)
+        else:
+            r.raise_for_status()
+    except httpx.ConnectError:
+        err_console.print(f"无法连接到 {_API_URL}，请确认 hive 服务已启动。")
+        raise typer.Exit(1)
+
+
+@tasks_app.command("cleanup", help="清理旧的已完成/已取消任务")
+def tasks_cleanup(
+    days: int = typer.Option(30, "--days", "-d", help="删除 N 天前的完成/取消任务"),
+    yes:  bool = typer.Option(False, "--yes", "-y", help="跳过确认"),
+    api:  str  = api_url_option,
+) -> None:
+    """清理 N 天前已完成/已取消的任务"""
+    if not yes:
+        typer.confirm(f"确认删除 {days} 天前已完成/取消的任务？", abort=True)
+    if httpx is None:
+        err_console.print("错误：需要安装 httpx。请执行：pip install httpx")
+        raise typer.Exit(1)
+    try:
+        r = httpx.delete(f"{_API_URL}/api/tasks/cleanup", params={"days": days}, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        count = data.get("deleted", 0)
+        console.print(f"[green]✓[/green] 已清理 [bold]{count}[/bold] 条任务")
+    except httpx.ConnectError:
+        err_console.print(f"无法连接到 {_API_URL}，请确认 hive 服务已启动。")
+        raise typer.Exit(1)
+    except httpx.HTTPStatusError as e:
+        err_console.print(f"API 错误 {e.response.status_code}：{e.response.text[:200]}")
+        raise typer.Exit(1)
+
+
 @tasks_app.command("cancel", help="取消任务")
 def tasks_cancel(
     task_id: str = typer.Argument(..., help="任务 ID"),

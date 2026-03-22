@@ -241,6 +241,42 @@ class TaskService:
         await self.db.refresh(task)
         return task
 
+    async def delete_task(self, task_id: str) -> None:
+        """硬删除单个任务；任务不存在时抛出 TaskNotFoundError"""
+        task = await self.get_by_id(task_id)
+        await self.db.delete(task)
+        await self.db.commit()
+
+    async def bulk_delete(self, task_ids: list[str]) -> dict:
+        """批量硬删除；返回 {deleted: N, not_found: [...]}"""
+        deleted = 0
+        not_found: list[str] = []
+        for tid in task_ids:
+            try:
+                task = await self.get_by_id(tid)
+                await self.db.delete(task)
+                deleted += 1
+            except TaskNotFoundError:
+                not_found.append(tid)
+        await self.db.commit()
+        return {"deleted": deleted, "not_found": not_found}
+
+    async def delete_old_completed(self, days: int = 30) -> dict:
+        """删除 days 天前已完成/已取消的任务；返回 {deleted: N}"""
+        from datetime import timedelta
+        from sqlalchemy import delete as sa_delete
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        terminal = [TaskState.Complete, TaskState.Cancelled]
+        result = await self.db.execute(
+            sa_delete(Task).where(
+                Task.state.in_(terminal),
+                Task.updated_at < cutoff,
+            )
+        )
+        await self.db.commit()
+        return {"deleted": result.rowcount}
+
     async def stats(self) -> dict:
         """返回各状态任务计数 + 汇总"""
         result = await self.db.execute(

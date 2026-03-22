@@ -55,6 +55,14 @@ class BulkTransitionRequest(BaseModel):
     reason:    str = ""
 
 
+class BulkDeleteRequest(BaseModel):
+    task_ids: list[str]
+
+
+class CleanupRequest(BaseModel):
+    days: int = 30
+
+
 def _task_to_dict(task: Task) -> dict:
     return {
         "id":               task.id,
@@ -135,6 +143,33 @@ async def bulk_transition(body: BulkTransitionRequest, db=Depends(get_db)):
         except (TaskNotFoundError, InvalidTransitionError) as e:
             results["failed"].append({"id": tid, "reason": str(e)})
     return results
+
+
+@router.delete("/bulk", status_code=200)
+async def bulk_delete_tasks(body: BulkDeleteRequest, db=Depends(get_db)):
+    """批量删除任务"""
+    svc = TaskService(db)
+    return await svc.bulk_delete(body.task_ids)
+
+
+@router.delete("/cleanup", status_code=200)
+async def cleanup_old_tasks(
+    days: int = Query(30, ge=1, description="删除 N 天前完成/取消的任务"),
+    db=Depends(get_db),
+):
+    """清理旧的已完成/已取消任务"""
+    svc = TaskService(db)
+    return await svc.delete_old_completed(days=days)
+
+
+@router.delete("/{task_id}", status_code=204)
+async def delete_task(task_id: str, db=Depends(get_db)):
+    """删除单个任务（硬删除）"""
+    svc = TaskService(db)
+    try:
+        await svc.delete_task(task_id)
+    except TaskNotFoundError:
+        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
 
 
 @router.get("/{task_id}")
