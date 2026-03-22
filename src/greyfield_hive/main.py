@@ -18,6 +18,7 @@ from greyfield_hive.db import init_db
 from greyfield_hive.services.event_bus import get_event_bus
 from greyfield_hive.workers.orchestrator import OrchestratorWorker
 from greyfield_hive.workers.dispatcher import DispatchWorker
+from greyfield_hive.workers.stall_detector import StallDetector
 from greyfield_hive.api.tasks import router as tasks_router
 from greyfield_hive.api.units import router as units_router
 from greyfield_hive.api.events import router as events_router
@@ -30,14 +31,15 @@ from greyfield_hive.api.fitness import router as fitness_router
 import greyfield_hive.models.fitness  # noqa: F401 — 确保 KillMark 注册到 Base.metadata
 
 
-_orchestrator: OrchestratorWorker | None = None
-_dispatcher:   DispatchWorker | None     = None
+_orchestrator:    OrchestratorWorker | None = None
+_dispatcher:      DispatchWorker | None     = None
+_stall_detector:  StallDetector | None      = None
 _bg_tasks: list[asyncio.Task] = []
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _orchestrator, _dispatcher
+    global _orchestrator, _dispatcher, _stall_detector
 
     # 1. 初始化数据库
     await init_db()
@@ -47,12 +49,14 @@ async def lifespan(app: FastAPI):
     register_ws_broadcast()
 
     # 3. 启动后台 Worker
-    _orchestrator = OrchestratorWorker()
-    _dispatcher   = DispatchWorker(max_concurrent=3)
+    _orchestrator   = OrchestratorWorker()
+    _dispatcher     = DispatchWorker(max_concurrent=3)
+    _stall_detector = StallDetector()
 
-    _bg_tasks.append(asyncio.create_task(_orchestrator.start(), name="orchestrator"))
-    _bg_tasks.append(asyncio.create_task(_dispatcher.start(),   name="dispatcher"))
-    logger.info("✅ 编排器 + 派发器已启动")
+    _bg_tasks.append(asyncio.create_task(_orchestrator.start(),   name="orchestrator"))
+    _bg_tasks.append(asyncio.create_task(_dispatcher.start(),     name="dispatcher"))
+    _bg_tasks.append(asyncio.create_task(_stall_detector.start(), name="stall_detector"))
+    logger.info("✅ 编排器 + 派发器 + 停滞检测器已启动")
 
     yield
 
@@ -61,6 +65,8 @@ async def lifespan(app: FastAPI):
         await _orchestrator.stop()
     if _dispatcher:
         await _dispatcher.stop()
+    if _stall_detector:
+        await _stall_detector.stop()
     for t in _bg_tasks:
         t.cancel()
     logger.info("👋 虫巢关闭")
