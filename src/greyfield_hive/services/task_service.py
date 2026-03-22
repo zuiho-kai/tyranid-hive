@@ -55,6 +55,7 @@ class TaskService:
         creator: str = "user",
         assignee_synapse: Optional[str] = None,
         meta: Optional[dict] = None,
+        labels: Optional[list] = None,
     ) -> Task:
         task = Task(
             title=title,
@@ -63,6 +64,7 @@ class TaskService:
             creator=creator,
             assignee_synapse=assignee_synapse,
             meta=meta or {},
+            labels=labels or [],
         )
         task.append_flow(None, TaskState.Incubating.value, "system", "任务孵化")
         self.db.add(task)
@@ -113,6 +115,7 @@ class TaskService:
         priority: Optional[str] = None,
         assignee: Optional[str] = None,
         q: Optional[str] = None,
+        label: Optional[str] = None,
         sort_by: str = "updated_at",
         order: str = "desc",
         limit: int = 50,
@@ -153,6 +156,10 @@ class TaskService:
                 | Task.description.ilike(pattern)
                 | Task.id.ilike(pattern)
             )
+        if label:
+            # JSON 数组序列化后包含 "label" 子串即命中（跨 SQLite/PG 兼容）
+            from sqlalchemy import cast, Text
+            stmt = stmt.where(cast(Task.labels, Text).contains(f'"{label}"'))
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
@@ -287,6 +294,9 @@ class TaskService:
         for k, v in fields.items():
             if k in allowed and v is not None:
                 setattr(task, k, v)
+        # labels 单独处理（允许传入空列表以清除所有标签）
+        if "labels" in fields and fields["labels"] is not None:
+            task.labels = list(fields["labels"])
         await self.db.commit()
         await self.db.refresh(task)
         return task

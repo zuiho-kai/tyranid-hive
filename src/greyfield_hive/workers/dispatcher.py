@@ -204,6 +204,11 @@ class DispatchWorker:
                 result=result,
             )
 
+            # Playbook 使用统计（闭合反馈回路）
+            success = _infer_success(result)
+            tags = [w for w in message.split() if 3 <= len(w) <= 10][:8]
+            await self._update_playbook_stats(domain=domain, tags=tags, success=success)
+
     # ── 基因上下文注入 ────────────────────────────────────
 
     async def _build_enriched_message(
@@ -316,6 +321,28 @@ class DispatchWorker:
                 logger.debug(f"[Dispatcher] 战功入库 synapse={synapse} success={success}")
         except Exception as e:
             logger.warning(f"[Dispatcher] 战功记录失败: {e}")
+
+    async def _update_playbook_stats(
+        self,
+        domain: str,
+        tags: list[str],
+        success: bool,
+    ) -> None:
+        """更新命中 Playbook 的使用次数和成功率（闭合反馈回路）"""
+        try:
+            async with SessionLocal() as db:
+                pb_svc = PlaybookService(db)
+                playbooks = await pb_svc.search(domain=domain, task_tags=tags, top_k=3)
+                for pb in playbooks:
+                    await pb_svc.record_usage(pb.id, success=success)
+                if playbooks:
+                    await db.commit()
+                    logger.debug(
+                        f"[Dispatcher] Playbook 使用统计已更新 "
+                        f"domain={domain} count={len(playbooks)}"
+                    )
+        except Exception as e:
+            logger.warning(f"[Dispatcher] Playbook 统计更新失败: {e}")
 
     async def _persist_progress(self, task_id: str, synapse: str, result: dict) -> None:
         """将 agent 执行结果写回任务进度日志"""

@@ -78,6 +78,8 @@ class Task(Base):
     progress_log = Column(JSON, default=list)
     # 子任务列表（Planning 阶段由主脑生成）
     todos        = Column(JSON, default=list)
+    # 标签列表（自由文本，存储为 JSON 数组，如 ["bug","urgent"]）
+    labels       = Column(JSON, default=list)
     # 扩展元数据
     meta         = Column(JSON, default=dict)
 

@@ -28,6 +28,7 @@ class CreateTaskRequest(BaseModel):
     creator:     str = "user"
     assignee_synapse: Optional[str] = None
     meta:        dict = {}
+    labels:      list[str] = []
 
 
 class TransitionRequest(BaseModel):
@@ -78,9 +79,10 @@ class AppendTodoRequest(BaseModel):
 
 
 class PatchTaskRequest(BaseModel):
-    title:       Optional[str] = None
-    description: Optional[str] = None
-    priority:    Optional[str] = None
+    title:       Optional[str]       = None
+    description: Optional[str]       = None
+    priority:    Optional[str]       = None
+    labels:      Optional[list[str]] = None
 
 
 class BulkTransitionRequest(BaseModel):
@@ -113,6 +115,7 @@ def _task_to_dict(task: Task) -> dict:
         "flow_log":         task.flow_log or [],
         "progress_log":     task.progress_log or [],
         "todos":            task.todos or [],
+        "labels":           task.labels or [],
         "meta":             task.meta or {},
         "created_at":       task.created_at.isoformat() if task.created_at else None,
         "updated_at":       task.updated_at.isoformat() if task.updated_at else None,
@@ -131,6 +134,7 @@ async def create_task(body: CreateTaskRequest, db=Depends(get_db)):
         creator=body.creator,
         assignee_synapse=body.assignee_synapse,
         meta=body.meta,
+        labels=body.labels,
     )
     return _task_to_dict(task)
 
@@ -145,6 +149,7 @@ async def list_tasks(
     priority: Optional[str] = Query(None),
     assignee: Optional[str] = Query(None),
     q:        Optional[str] = Query(None, description="关键词搜索（title / description / id）"),
+    label:    Optional[str] = Query(None, description="按标签过滤（精确匹配，如 bug）"),
     sort_by:  str            = Query("updated_at", description="排序字段: updated_at/created_at/priority/state"),
     order:    str            = Query("desc", description="排序方向: asc/desc"),
     limit:    int            = Query(50, ge=1, le=200),
@@ -159,7 +164,7 @@ async def list_tasks(
     state_enum = TaskState(state) if state else None
     tasks = await svc.list_tasks(
         state=state_enum, priority=priority, assignee=assignee, q=q,
-        sort_by=sort_by, order=order, limit=limit, offset=offset,
+        label=label, sort_by=sort_by, order=order, limit=limit, offset=offset,
     )
     return [_task_to_dict(t) for t in tasks]
 
@@ -316,7 +321,7 @@ async def add_progress(task_id: str, body: ProgressRequest, db=Depends(get_db)):
 
 @router.patch("/{task_id}")
 async def patch_task(task_id: str, body: PatchTaskRequest, db=Depends(get_db)):
-    """部分更新任务字段（title / description / priority）"""
+    """部分更新任务字段（title / description / priority / labels）"""
     svc = TaskService(db)
     try:
         task = await svc.patch_task(task_id, **body.model_dump(exclude_none=True))
