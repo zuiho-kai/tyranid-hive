@@ -2,6 +2,8 @@
 
 GET  /api/genes/export          导出所有 lessons + playbooks（JSON bundle）
 POST /api/genes/import          批量导入 lessons + playbooks（幂等：slug 冲突时跳过 playbook）
+GET  /api/genes/synapses        列出所有 L2 基因文件中定义的 Synapse（含 system_prompt 摘要）
+GET  /api/genes/synapses/{id}   获取指定 Synapse 的完整 L2 基因
 """
 
 from datetime import datetime, timezone
@@ -16,8 +18,48 @@ from greyfield_hive.models.lesson import Lesson
 from greyfield_hive.models.playbook import Playbook
 from greyfield_hive.services.lessons_bank import LessonsBank
 from greyfield_hive.services.playbook_service import PlaybookService
+from greyfield_hive.services.gene_loader import get_gene_loader
 
 router = APIRouter(prefix="/api/genes", tags=["genes"])
+
+
+# ── synapse L2 基因目录 ──────────────────────────────────────────────────
+
+@router.get("/synapses")
+async def list_gene_synapses():
+    """
+    列出所有在 genes/L2/ 或 config/genes/L2/ 中定义的 Synapse L2 基因。
+    返回 id、domain、tier 和 system_prompt 摘要（前 120 字）。
+    """
+    loader = get_gene_loader()
+    ids = loader.list_synapses()
+    result = []
+    for sid in ids:
+        gene = loader.get_gene(sid) or {}
+        prompt = gene.get("system_prompt", "")
+        result.append({
+            "synapse_id":      sid,
+            "domain":          gene.get("domain", "general"),
+            "tier":            gene.get("tier", 2),
+            "prompt_preview":  prompt[:120].replace("\n", " "),
+        })
+    return result
+
+
+@router.get("/synapses/{synapse_id}")
+async def get_gene_synapse(synapse_id: str):
+    """
+    获取指定 Synapse 的完整 L2 基因配置（包含完整 system_prompt）。
+    """
+    loader = get_gene_loader()
+    gene = loader.get_gene(synapse_id)
+    if not gene:
+        raise HTTPException(status_code=404, detail=f"未找到 L2 基因: {synapse_id}")
+    return {
+        "synapse_id":    synapse_id,
+        "gene":          gene,
+        "system_prompt": loader.get_system_prompt(synapse_id),
+    }
 
 
 # ── export ──────────────────────────────────────────────────────────────

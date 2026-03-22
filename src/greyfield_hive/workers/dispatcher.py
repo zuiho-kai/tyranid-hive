@@ -25,6 +25,7 @@ from greyfield_hive.adapters.openclaw import get_adapter, OpenClawAdapter
 from greyfield_hive.services.lessons_bank import LessonsBank
 from greyfield_hive.services.playbook_service import PlaybookService
 from greyfield_hive.services.fitness_service import FitnessService
+from greyfield_hive.services.gene_loader import get_gene_loader
 
 
 # ── 小主脑元数据（人类可读）────────────────────────────────
@@ -240,7 +241,13 @@ class DispatchWorker:
             lessons_text  = _format_lessons_block(lessons)
             playbooks_text = _format_playbooks_block(playbooks)
 
+            # 从 L2 基因文件加载 Synapse 角色系统提示词
+            gene_loader = get_gene_loader()
+            system_prompt = gene_loader.get_system_prompt(synapse)
+
             context_block = (
+                f"## 你的角色\n{system_prompt}\n\n"
+                f"---\n"
                 f"[HIVE CONTEXT]\n"
                 f"Task-ID : {task_id or '—'}\n"
                 f"Synapse : {synapse}\n"

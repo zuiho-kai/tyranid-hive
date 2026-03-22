@@ -16,6 +16,10 @@
 Hive 在调用你之前，已在消息前注入了：
 
 ```
+## 你的角色
+<来自 genes/L2/synapse_{role}.yaml 的 system_prompt>
+
+---
 [HIVE CONTEXT]
 Task-ID : <任务ID>
 Synapse : <你的角色>
@@ -63,6 +67,19 @@ if task_id:
 3. **关注输出质量** —— 赛马机制会以输出丰富度评判胜负，给出详细、有价值的结果
 4. **不超范围** —— 只完成被明确要求的任务，不做额外改动
 
+## 任务生命周期 API
+
+| 操作 | 方法 | 端点 |
+|------|------|------|
+| 汇报进度 | POST | `/api/tasks/$HIVE_TASK_ID/progress` |
+| 创建子任务 | POST | `/api/tasks` + `parent_id` |
+| 查依赖阻塞 | GET | `/api/tasks/$HIVE_TASK_ID/blocked` |
+| 导出基因库 | GET | `/api/genes/export` |
+| 导入基因库 | POST | `/api/genes/import` |
+| 写入经验 | POST | `/api/lessons` |
+| 搜索经验 | POST | `/api/lessons/search` |
+| 使用手册 | POST | `/api/playbooks/{slug}/use` |
+
 ## 当前支持的 Synapse 角色
 
 | 角色 | 默认领域 | 擅长 |
@@ -72,3 +89,5 @@ if task_id:
 | `research-analyst` | research | 信息检索与分析 |
 | `evolution-master` | evolution | 经验萃取与基因进化 |
 | `finance-scout` | finance | 市场数据与金融分析 |
+
+> 完整角色定义见 `genes/L2/synapse_*.yaml`，可通过 `GET /api/genes/synapses` 查询。
