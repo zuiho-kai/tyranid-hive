@@ -1,7 +1,8 @@
 """派发器 Worker —— 消费 task.dispatch 事件，调用 OpenClaw CLI 执行小主脑
 
 工作流：
-  task.dispatch 事件 → 读取 synapse ID → 调用 openclaw / python agent → 发布 agent.thoughts
+  task.dispatch 事件 → 读取 synapse ID → 调用 openclaw / python agent
+                    → 发布 agent.thoughts → 回写 task.progress_log
 """
 
 import asyncio
@@ -125,6 +126,38 @@ class DispatchWorker:
 
             if result.get("returncode", -1) != 0:
                 logger.warning(f"[Dispatcher] {synapse} 返回非零: {result.get('returncode')}")
+
+            # 回写 progress_log（仅 task_id 非空时）
+            if task_id:
+                await self._persist_progress(task_id, synapse, result)
+
+    async def _persist_progress(self, task_id: str, synapse: str, result: dict) -> None:
+        """将 agent 执行结果写回任务进度日志"""
+        from greyfield_hive.db import SessionLocal
+        from greyfield_hive.services.task_service import TaskService, TaskNotFoundError
+
+        rc     = result.get("returncode", -1)
+        stdout = (result.get("stdout") or "").strip()
+        stderr = (result.get("stderr")  or "").strip()
+
+        if rc == 0:
+            content = stdout[:2000] if stdout else f"[{synapse}] 执行完成"
+        else:
+            content = f"[执行失败 rc={rc}]"
+            if stdout:
+                content += f"\n{stdout[:1000]}"
+            if stderr:
+                content += f"\n[stderr] {stderr[:300]}"
+
+        try:
+            async with SessionLocal() as db:
+                svc = TaskService(db)
+                await svc.add_progress(task_id, f"synapse.{synapse}", content)
+                logger.debug(f"[Dispatcher] 进度已回写 {task_id} ← {synapse} ({len(content)}字)")
+        except TaskNotFoundError:
+            logger.debug(f"[Dispatcher] 任务不存在，跳过进度回写: {task_id}")
+        except Exception as e:
+            logger.warning(f"[Dispatcher] 进度回写失败 {task_id}: {e}")
 
     # ── 调用 OpenClaw ────────────────────────────────────
 

@@ -1,8 +1,19 @@
 """任务服务 —— CRUD + 状态机 + 事件发布"""
 
+import asyncio
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
+
+# ── 进度日志并发写入锁 ────────────────────────────────────────────────
+# SQLite 不支持行级锁，用 Python 层的 per-task asyncio.Lock 序列化并发写入
+_progress_locks: dict[str, asyncio.Lock] = {}
+
+
+def _progress_lock(task_id: str) -> asyncio.Lock:
+    if task_id not in _progress_locks:
+        _progress_locks[task_id] = asyncio.Lock()
+    return _progress_locks[task_id]
 
 from loguru import logger
 from sqlalchemy import select, func
@@ -184,12 +195,14 @@ class TaskService:
     # ── 进度 / Todo ───────────────────────────────────────
 
     async def add_progress(self, task_id: str, agent: str, content: str) -> Task:
-        task = await self.get_by_id(task_id)
-        task.append_progress(agent, content)
-        task.updated_at = datetime.now(timezone.utc)
-        await self.db.commit()
-        await self.db.refresh(task)
-        return task
+        # per-task asyncio.Lock 防止并发写入 progress_log 时 last-write-wins 丢数据
+        async with _progress_lock(task_id):
+            task = await self.get_by_id(task_id)
+            task.append_progress(agent, content)
+            task.updated_at = datetime.now(timezone.utc)
+            await self.db.commit()
+            await self.db.refresh(task)
+            return task
 
     async def update_todos(self, task_id: str, todos: list[dict]) -> Task:
         task = await self.get_by_id(task_id)
