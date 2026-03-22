@@ -83,6 +83,14 @@ export interface BusEvent {
   created_at: string
 }
 
+export interface TaskStats {
+  total: number
+  active: number
+  complete: number
+  cancelled: number
+  by_state: Record<string, number>
+}
+
 // ── Tasks ────────────────────────────────────────────────
 
 export async function fetchTasks(state?: string): Promise<Task[]> {
@@ -110,6 +118,20 @@ export async function transitionTask(id: string, new_state: string, agent = 'das
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ new_state, agent, reason }),
+  })
+  return r.json()
+}
+
+export async function fetchStats(): Promise<TaskStats> {
+  const r = await fetch(`${BASE}/tasks/stats`)
+  return r.json()
+}
+
+export async function bulkTransition(task_ids: string[], new_state: string, agent = 'dashboard', reason = ''): Promise<{ ok: string[]; failed: { id: string; reason: string }[] }> {
+  const r = await fetch(`${BASE}/tasks/bulk/transition`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ task_ids, new_state, agent, reason }),
   })
   return r.json()
 }

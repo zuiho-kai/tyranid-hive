@@ -134,3 +134,43 @@ async def test_list_tasks_filter_by_priority(client):
     items = resp.json()
     assert len(items) == 1
     assert items[0]["priority"] == "high"
+
+
+@pytest.mark.asyncio
+async def test_bulk_transition_all_ok(client):
+    t1 = (await client.post("/api/tasks", json={"title": "批量A"})).json()["id"]
+    t2 = (await client.post("/api/tasks", json={"title": "批量B"})).json()["id"]
+    resp = await client.post("/api/tasks/bulk/transition", json={
+        "task_ids": [t1, t2],
+        "new_state": "Cancelled",
+        "agent": "test",
+        "reason": "批量取消",
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert set(data["ok"]) == {t1, t2}
+    assert data["failed"] == []
+
+
+@pytest.mark.asyncio
+async def test_bulk_transition_partial_failure(client):
+    t1 = (await client.post("/api/tasks", json={"title": "可取消"})).json()["id"]
+    resp = await client.post("/api/tasks/bulk/transition", json={
+        "task_ids": [t1, "BT-NOT-EXIST"],
+        "new_state": "Cancelled",
+        "agent": "test",
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert t1 in data["ok"]
+    assert len(data["failed"]) == 1
+    assert data["failed"][0]["id"] == "BT-NOT-EXIST"
+
+
+@pytest.mark.asyncio
+async def test_bulk_transition_invalid_state(client):
+    resp = await client.post("/api/tasks/bulk/transition", json={
+        "task_ids": ["BT-any"],
+        "new_state": "NotAState",
+    })
+    assert resp.status_code == 400

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { fetchTasks, fetchSynapses, createTask, transitionTask } from './api'
-import type { Task, Synapse, BusEvent } from './api'
+import { fetchTasks, fetchSynapses, fetchStats, createTask, transitionTask } from './api'
+import type { Task, Synapse, BusEvent, TaskStats } from './api'
 import { useHiveWebSocket } from './useWebSocket'
 import TaskList from './components/TaskList'
 import TaskDetail from './components/TaskDetail'
@@ -15,6 +15,7 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('tasks')
   const [tasks, setTasks] = useState<Task[]>([])
   const [synapses, setSynapses] = useState<Synapse[]>([])
+  const [stats, setStats] = useState<TaskStats | null>(null)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -22,8 +23,9 @@ export default function App() {
   const refreshTasks = useCallback(async () => {
     setLoading(true)
     try {
-      const ts = await fetchTasks()
+      const [ts, st] = await Promise.all([fetchTasks(), fetchStats()])
       setTasks(ts)
+      setStats(st)
       if (selectedTask) {
         const updated = ts.find(t => t.id === selectedTask.id)
         if (updated) setSelectedTask(updated)
@@ -53,8 +55,6 @@ export default function App() {
     await refreshTasks()
   }
 
-  const activeTasks = tasks.filter(t => !['Complete', 'Cancelled'].includes(t.state))
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#0f0f12', color: '#e2e8f0', fontFamily: 'system-ui, sans-serif' }}>
       {/* 顶栏 */}
@@ -68,9 +68,17 @@ export default function App() {
           <span style={{ fontSize: 11, color: connected ? '#22c55e' : '#ef4444' }}>
             {connected ? '● 已连接' : '○ 断线'}
           </span>
-          <span style={{ fontSize: 11, color: '#475569' }}>
-            {activeTasks.length} 活跃 / {tasks.length} 总计
-          </span>
+          {/* 使用 /api/tasks/stats 的精确计数 */}
+          {stats ? (
+            <span style={{ fontSize: 11, color: '#475569' }}>
+              <span style={{ color: '#22c55e' }}>{stats.active}</span> 活跃
+              {' / '}
+              <span>{stats.total}</span> 总计
+              {stats.complete > 0 && <> · <span style={{ color: '#475569' }}>{stats.complete} 完成</span></>}
+            </span>
+          ) : (
+            <span style={{ fontSize: 11, color: '#475569' }}>加载中…</span>
+          )}
           <button onClick={() => setShowCreate(true)} style={{ padding: '5px 14px', background: '#7c3aed', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
             + 新战团
           </button>

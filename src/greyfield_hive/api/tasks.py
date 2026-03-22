@@ -48,6 +48,13 @@ class PatchTaskRequest(BaseModel):
     priority:    Optional[str] = None
 
 
+class BulkTransitionRequest(BaseModel):
+    task_ids:  list[str]
+    new_state: str
+    agent:     str = "user"
+    reason:    str = ""
+
+
 def _task_to_dict(task: Task) -> dict:
     return {
         "id":               task.id,
@@ -108,6 +115,25 @@ async def task_stats(db=Depends(get_db)):
     """返回任务统计（各状态计数）"""
     svc = TaskService(db)
     return await svc.stats()
+
+
+@router.post("/bulk/transition")
+async def bulk_transition(body: BulkTransitionRequest, db=Depends(get_db)):
+    """批量状态流转 —— 一次请求操作多个任务"""
+    try:
+        new_state = TaskState(body.new_state)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"未知状态: {body.new_state}")
+
+    svc = TaskService(db)
+    results = {"ok": [], "failed": []}
+    for tid in body.task_ids:
+        try:
+            await svc.transition(tid, new_state, agent=body.agent, reason=body.reason)
+            results["ok"].append(tid)
+        except (TaskNotFoundError, InvalidTransitionError) as e:
+            results["failed"].append({"id": tid, "reason": str(e)})
+    return results
 
 
 @router.get("/{task_id}")
