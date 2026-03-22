@@ -12,6 +12,9 @@
   hive tasks dispatch BT-xxx --synapse=code-expert  派发任务
   hive tasks subtask BT-xxx --title "…"             创建子任务
   hive tasks blocked BT-xxx           检查依赖阻塞状态
+  hive watch                          实时订阅事件流（SSE）
+  hive watch --topic task.status      只看状态变化事件
+  hive watch --task BT-xxx -n 10      先看最近10条，再实时追踪
   hive synapses                       列出小主脑
   hive fitness leaderboard            适存度排行榜
   hive fitness show <synapse_id>      小主脑适存度详情
@@ -1132,6 +1135,108 @@ def genes_import(
         f"经验 +{result.get('lessons_added', 0)}  "
         f"手册 +{result.get('playbooks_added', 0)}  "
         f"手册跳过 {result.get('playbooks_skipped', 0)}"
+    )
+
+
+# ── watch —— SSE 实时事件流 ───────────────────────────────────────────
+
+@app.command()
+def watch(
+    topic:   Optional[str] = typer.Option(None, "--topic",   "-t", help="只看指定 topic，如 task.status"),
+    task_id: Optional[str] = typer.Option(None, "--task",    "-T", help="只看指定任务的事件"),
+    n:       int            = typer.Option(0,   "--last",    "-n", help="先显示最近 N 条历史事件"),
+    api:     str            = api_url_option,
+) -> None:
+    """实时订阅虫巢事件流（SSE）。按 Ctrl+C 退出。"""
+    if httpx is None:
+        err_console.print("缺少 httpx，请安装：pip install httpx")
+        raise typer.Exit(1)
+
+    # 颜色映射
+    _TOPIC_COLOR = {
+        "task.created":   "green",
+        "task.status":    "cyan",
+        "task.dispatch":  "yellow",
+        "task.completed": "bold green",
+        "task.stalled":   "bold red",
+        "task.deleted":   "red",
+        "agent.thoughts": "dim",
+        "agent.heartbeat":"dim",
+        "agent.todo.update": "blue",
+    }
+
+    # 先拉历史
+    if n > 0:
+        params: dict = {"limit": n}
+        if topic:
+            params["topic"] = topic
+        if task_id:
+            params["task_id"] = task_id
+        try:
+            hist = _get("/api/events", params=params)
+            console.print(f"[dim]── 最近 {len(hist)} 条历史事件 ──[/dim]")
+            for ev in reversed(hist):
+                _print_event(ev, _TOPIC_COLOR)
+            console.print("[dim]── 开始实时流 ──[/dim]")
+        except Exception:
+            pass
+
+    # SSE 流
+    url = f"{_API_URL}/api/events/stream"
+    params_sse: dict = {}
+    if topic:
+        params_sse["topic"] = topic
+    if task_id:
+        params_sse["task_id"] = task_id
+
+    console.print(f"[dim]连接到 {url}，等待事件…（Ctrl+C 退出）[/dim]")
+    try:
+        with httpx.Client(timeout=None) as client:
+            with client.stream("GET", url, params=params_sse) as resp:
+                for line in resp.iter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    raw = line[5:].strip()
+                    if not raw:
+                        continue
+                    try:
+                        import json as _json2
+                        ev = _json2.loads(raw)
+                    except Exception:
+                        continue
+                    if ev.get("type") == "connected":
+                        console.print("[dim]已连接[/dim]")
+                        continue
+                    _print_event(ev, _TOPIC_COLOR)
+    except KeyboardInterrupt:
+        console.print("\n[dim]已退出[/dim]")
+    except Exception as e:
+        err_console.print(f"连接失败：{e}")
+        raise typer.Exit(1)
+
+
+def _print_event(ev: dict, color_map: dict) -> None:
+    """格式化并打印单条事件"""
+    ts = (ev.get("created_at") or "")[:19].replace("T", " ")
+    topic = ev.get("topic", "")
+    etype = ev.get("event_type", "")
+    producer = ev.get("producer", "")
+    payload = ev.get("payload") or {}
+    task_id = payload.get("task_id", ev.get("task_id", ""))
+    color = color_map.get(topic, "white")
+
+    # 精简 payload（只取关键字段）
+    parts = []
+    for key in ("title", "from_state", "to_state", "synapse", "content", "state"):
+        if key in payload:
+            parts.append(f"{key}={payload[key]!r}")
+
+    extra = "  " + "  ".join(parts) if parts else ""
+    console.print(
+        f"[dim]{ts}[/dim]  [{color}]{topic}/{etype}[/{color}]"
+        f"  [dim]{producer}[/dim]"
+        + (f"  [bold]{task_id}[/bold]" if task_id else "")
+        + extra
     )
 
 
