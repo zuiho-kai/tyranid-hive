@@ -1,4 +1,5 @@
 from greyfield_hive.models.task import Task, TaskState, STATE_TRANSITIONS, TERMINAL_STATES
 from greyfield_hive.models.event import HiveEvent
+from greyfield_hive.models.lesson import Lesson
 
-__all__ = ["Task", "TaskState", "STATE_TRANSITIONS", "TERMINAL_STATES", "HiveEvent"]
+__all__ = ["Task", "TaskState", "STATE_TRANSITIONS", "TERMINAL_STATES", "HiveEvent", "Lesson"]
