@@ -12,6 +12,7 @@ from greyfield_hive.services.playbook_service import PlaybookService
 from greyfield_hive.services.task_service import TaskService, InvalidTransitionError, TaskNotFoundError
 from greyfield_hive.services.trial_race import TrialRaceService
 from greyfield_hive.services.chain_runner import ChainRunnerService
+from greyfield_hive.services.swarm_runner import SwarmRunnerService, SwarmUnit
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
@@ -48,6 +49,17 @@ class ChainRequest(BaseModel):
     synapses: list[str]       # 至少两个 synapse name，按顺序执行
     message:  str = ""
     domain:   str = ""
+
+
+class SwarmUnitRequest(BaseModel):
+    synapse: str
+    message: str
+    domain:  str = ""
+
+
+class SwarmRequest(BaseModel):
+    units:          list[SwarmUnitRequest]   # 至少一个 unit
+    max_concurrent: int = 5
 
 
 class ProgressRequest(BaseModel):
@@ -433,6 +445,60 @@ async def chain_task(task_id: str, body: ChainRequest, db=Depends(get_db)):
         "results": [
             {
                 "synapse":     r.synapse,
+                "returncode":  r.returncode,
+                "success":     r.success,
+                "stdout":      r.stdout[:500],
+                "stderr":      r.stderr[:200],
+                "elapsed_sec": r.elapsed_sec,
+            }
+            for r in result.results
+        ],
+    }
+
+
+@router.post("/{task_id}/swarm")
+async def swarm_task(task_id: str, body: SwarmRequest, db=Depends(get_db)):
+    """Swarm Mode —— 并发 Unit 池，批量独立任务并行执行
+
+    - units 中每个 unit 有独立的 synapse + message
+    - 所有 units 并发执行（受 max_concurrent 限制）
+    - 返回每个 unit 的结果 + 成功率统计
+    """
+    if not body.units:
+        raise HTTPException(status_code=400, detail="units 不能为空")
+    if body.max_concurrent < 1 or body.max_concurrent > 20:
+        raise HTTPException(status_code=400, detail="max_concurrent 范围 1-20")
+
+    svc = TaskService(db)
+    try:
+        task = await svc.get_by_id(task_id)
+    except TaskNotFoundError:
+        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+
+    units = [
+        SwarmUnit(synapse=u.synapse, message=u.message, domain=u.domain)
+        for u in body.units
+    ]
+
+    swarm = SwarmRunnerService(db=db)
+    result = await swarm.run(
+        task_id=task_id,
+        units=units,
+        trace_id=task.trace_id or "",
+        max_concurrent=body.max_concurrent,
+    )
+
+    return {
+        "task_id":       task_id,
+        "total":         result.total,
+        "success_count": result.success_count,
+        "fail_count":    result.fail_count,
+        "success_rate":  round(result.success_rate, 4),
+        "all_success":   result.all_success,
+        "results": [
+            {
+                "synapse":     r.synapse,
+                "message":     r.message,
                 "returncode":  r.returncode,
                 "success":     r.success,
                 "stdout":      r.stdout[:500],

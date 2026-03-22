@@ -376,6 +376,51 @@ export async function chainTask(
   return r.json()
 }
 
+// ── Swarm Mode ───────────────────────────────────────────
+
+export interface SwarmUnitInput {
+  synapse: string
+  message: string
+  domain?: string
+}
+
+export interface SwarmUnitResult {
+  synapse:     string
+  message:     string
+  returncode:  number
+  success:     boolean
+  stdout:      string
+  stderr:      string
+  elapsed_sec: number
+}
+
+export interface SwarmResult {
+  task_id:       string
+  total:         number
+  success_count: number
+  fail_count:    number
+  success_rate:  number
+  all_success:   boolean
+  results:       SwarmUnitResult[]
+}
+
+export async function swarmTask(
+  id: string,
+  units: SwarmUnitInput[],
+  maxConcurrent = 5,
+): Promise<SwarmResult> {
+  const r = await fetch(`${BASE}/tasks/${id}/swarm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ units, max_concurrent: maxConcurrent }),
+  })
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}))
+    throw new Error(err.detail || `HTTP ${r.status}`)
+  }
+  return r.json()
+}
+
 // ── Events ───────────────────────────────────────────────
 
 export async function fetchEvents(task_id?: string): Promise<BusEvent[]> {

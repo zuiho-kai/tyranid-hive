@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import type { Task, BusEvent, AnalysisResult, TrialResult, ChainResult } from '../api'
-import { fetchEvents, patchTask, deleteTask, appendTodo, toggleTodo, analyzeTask, trialTask, chainTask } from '../api'
+import type { Task, BusEvent, AnalysisResult, TrialResult, ChainResult, SwarmResult } from '../api'
+import { fetchEvents, patchTask, deleteTask, appendTodo, toggleTodo, analyzeTask, trialTask, chainTask, swarmTask } from '../api'
 
 const NEXT_STATES: Record<string, string[]> = {
   Incubating:    ['Planning', 'Cancelled'],
@@ -54,6 +54,14 @@ export default function TaskDetail({ task, onTransition, onDelete, onPatch }: Pr
   const [chainError, setChainError] = useState<string | null>(null)
   const [showChainInput, setShowChainInput] = useState(false)
   const [chainSynapses, setChainSynapses] = useState('overmind,code-expert')
+  const [swarming, setSwarming] = useState(false)
+  const [swarmResult, setSwarmResult] = useState<SwarmResult | null>(null)
+  const [swarmError, setSwarmError] = useState<string | null>(null)
+  const [showSwarmInput, setShowSwarmInput] = useState(false)
+  // 格式: "synapse:message" 每行一个
+  const [swarmUnits, setSwarmUnits] = useState(
+    'code-expert:实现功能A\nresearch-analyst:调研方案B'
+  )
 
   if (!task) {
     return (
@@ -177,6 +185,31 @@ export default function TaskDetail({ task, onTransition, onDelete, onPatch }: Pr
     }
   }
 
+  const doSwarm = async () => {
+    const units = swarmUnits.split('\n')
+      .map(line => line.trim())
+      .filter(Boolean)
+      .map(line => {
+        const idx = line.indexOf(':')
+        if (idx < 0) return null
+        return { synapse: line.slice(0, idx).trim(), message: line.slice(idx + 1).trim() }
+      })
+      .filter((u): u is { synapse: string; message: string } => !!u)
+    if (units.length === 0) { setSwarmError('至少需要一个有效 unit（格式：synapse:message）'); return }
+    setSwarming(true)
+    setSwarmResult(null)
+    setSwarmError(null)
+    setShowSwarmInput(false)
+    try {
+      const result = await swarmTask(task.id, units)
+      setSwarmResult(result)
+    } catch (e: unknown) {
+      setSwarmError(e instanceof Error ? e.message : 'Swarm 执行失败')
+    } finally {
+      setSwarming(false)
+    }
+  }
+
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
       {/* 头部 */}
@@ -291,6 +324,13 @@ export default function TaskDetail({ task, onTransition, onDelete, onPatch }: Pr
           >
             {chaining ? '🔗 链式中…' : '🔗 链式调用'}
           </button>
+          <button
+            onClick={() => setShowSwarmInput(v => !v)}
+            disabled={swarming}
+            style={{ padding: '5px 14px', background: swarming ? '#1a2a1a' : '#14272d', border: 'none', borderRadius: 6, color: swarming ? '#34d399' : '#a7f3d0', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+          >
+            {swarming ? '🐛 Swarm中…' : '🐛 Swarm'}
+          </button>
         </div>
       )}
 
@@ -355,6 +395,26 @@ export default function TaskDetail({ task, onTransition, onDelete, onPatch }: Pr
         </Section>
       )}
 
+      {/* Swarm 输入 */}
+      {!editing && showSwarmInput && (
+        <div style={{ marginBottom: 16, padding: '10px 14px', background: '#13131a', borderRadius: 8 }}>
+          <div style={{ fontSize: 11, color: '#475569', marginBottom: 6 }}>每行一个 unit，格式：synapse:message</div>
+          <textarea
+            value={swarmUnits}
+            onChange={e => setSwarmUnits(e.target.value)}
+            rows={4}
+            style={{ width: '100%', boxSizing: 'border-box', padding: '6px 8px', background: '#0d0d10', border: '1px solid #2d3148', borderRadius: 4, color: '#e2e8f0', fontSize: 12, outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
+          />
+          <button
+            onClick={doSwarm}
+            disabled={swarming}
+            style={{ marginTop: 6, padding: '4px 14px', background: '#065f46', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', fontSize: 12 }}
+          >
+            并发执行
+          </button>
+        </div>
+      )}
+
       {/* 链式调用结果 */}
       {chainError && (
         <div style={{ marginBottom: 12, padding: '8px 12px', background: '#1a0a0a', border: '1px solid #7f1d1d', borderRadius: 6, fontSize: 12, color: '#f87171' }}>
@@ -378,6 +438,34 @@ export default function TaskDetail({ task, onTransition, onDelete, onPatch }: Pr
                 {chainResult.final_output.slice(0, 500)}
               </div>
             )}
+          </div>
+        </Section>
+      )}
+
+      {/* Swarm 结果 */}
+      {swarmError && (
+        <div style={{ marginBottom: 12, padding: '8px 12px', background: '#1a0a0a', border: '1px solid #7f1d1d', borderRadius: 6, fontSize: 12, color: '#f87171' }}>
+          ⚠ {swarmError}
+        </div>
+      )}
+      {swarmResult && (
+        <Section title={`Swarm 结果 (${swarmResult.success_count}/${swarmResult.total} 成功  ${(swarmResult.success_rate * 100).toFixed(0)}%)`}>
+          <div style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {swarmResult.results.map((unit, i) => (
+              <div key={i} style={{ padding: '4px 0', borderBottom: '1px solid #1e2030' }}>
+                <div style={{ display: 'flex', gap: 8, color: '#64748b' }}>
+                  <span>{unit.success ? '✅' : '❌'}</span>
+                  <span style={{ color: unit.success ? '#22c55e' : '#ef4444', fontWeight: 600, minWidth: 120 }}>{unit.synapse}</span>
+                  <span>rc={unit.returncode}</span>
+                  <span style={{ color: '#374151' }}>{unit.elapsed_sec.toFixed(1)}s</span>
+                </div>
+                {unit.stdout && (
+                  <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 2, paddingLeft: 20, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {unit.stdout.slice(0, 100)}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </Section>
       )}

@@ -521,6 +521,55 @@ def tasks_chain(
         raise typer.Exit(1)
 
 
+@tasks_app.command("swarm", help="Swarm Mode：并发 Unit 池，批量独立任务")
+def tasks_swarm(
+    task_id:         str = typer.Argument(..., help="任务 ID"),
+    units:           str = typer.Option(..., "--units", "-u",
+                                        help="unit 列表，格式：synapse1:message1,synapse2:message2"),
+    max_concurrent:  int = typer.Option(5, "--max-concurrent", "-c", help="最大并发数 (1-20)"),
+    api:             str = api_url_option,
+) -> None:
+    """并发执行多个独立 unit（每个 unit 有独立 synapse + message）"""
+    unit_list = []
+    for part in units.split(","):
+        part = part.strip()
+        if ":" not in part:
+            err_console.print(f"错误：unit 格式应为 synapse:message，收到：{part!r}")
+            raise typer.Exit(1)
+        synapse, msg = part.split(":", 1)
+        unit_list.append({"synapse": synapse.strip(), "message": msg.strip()})
+    if not unit_list:
+        err_console.print("错误：--units 至少需要一个 unit")
+        raise typer.Exit(1)
+    if httpx is None:
+        err_console.print("错误：需要安装 httpx。请执行：pip install httpx")
+        raise typer.Exit(1)
+    try:
+        payload = {"units": unit_list, "max_concurrent": max_concurrent}
+        console.print(f"[cyan]▶[/cyan] Swarm Mode 开始：{len(unit_list)} 个 units…")
+        r = httpx.post(f"{_API_URL}/api/tasks/{task_id}/swarm", json=payload, timeout=300)
+        if r.status_code == 404:
+            err_console.print(f"任务不存在：{task_id}")
+            raise typer.Exit(1)
+        r.raise_for_status()
+        data = r.json()
+        ok = data.get("success_count", 0)
+        total = data.get("total", 0)
+        rate = data.get("success_rate", 0)
+        console.print(f"[bold]Swarm 完成[/bold]：{ok}/{total} 成功  成功率 {rate:.0%}")
+        for res in data.get("results", []):
+            icon = "✅" if res.get("success") else "❌"
+            console.print(f"  {icon} {res.get('synapse', '?')}  rc={res.get('returncode', '?')}  {res.get('elapsed_sec', 0):.1f}s")
+            if res.get("stdout"):
+                console.print(f"     {res['stdout'][:80]}")
+    except httpx.ConnectError:
+        err_console.print(f"无法连接到 {_API_URL}，请确认 hive 服务已启动。")
+        raise typer.Exit(1)
+    except httpx.HTTPStatusError as e:
+        err_console.print(f"API 错误 {e.response.status_code}：{e.response.text[:200]}")
+        raise typer.Exit(1)
+
+
 @tasks_app.command("cancel", help="取消任务")
 def tasks_cancel(
     task_id: str = typer.Argument(..., help="任务 ID"),
