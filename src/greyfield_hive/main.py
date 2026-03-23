@@ -1,5 +1,7 @@
 """虫巢 API 服务入口 —— FastAPI + 后台 Worker"""
 
+from __future__ import annotations
+
 import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path

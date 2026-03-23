@@ -3,13 +3,13 @@ import type { Task, BusEvent, AnalysisResult, TrialResult, ChainResult, SwarmRes
 import { fetchEvents, patchTask, deleteTask, appendTodo, toggleTodo, analyzeTask, trialTask, chainTask, swarmTask, fetchTaskChildren, fetchTaskBlocked } from '../api'
 
 const NEXT_STATES: Record<string, string[]> = {
-  Incubating:    ['Planning', 'Cancelled'],
-  Planning:      ['Reviewing', 'Dormant', 'Cancelled'],
-  Reviewing:     ['Spawning', 'Planning', 'Cancelled'],
-  Spawning:      ['Executing', 'Dormant', 'Cancelled'],
-  Executing:     ['Consolidating', 'Complete', 'Dormant', 'Cancelled'],
+  Incubating: ['Planning', 'Cancelled'],
+  Planning: ['Reviewing', 'Dormant', 'Cancelled'],
+  Reviewing: ['Spawning', 'Planning', 'Cancelled'],
+  Spawning: ['Executing', 'Dormant', 'Cancelled'],
+  Executing: ['Consolidating', 'Complete', 'Dormant', 'Cancelled'],
   Consolidating: ['Complete', 'Executing', 'Cancelled'],
-  Dormant:       ['Planning', 'Executing'],
+  Dormant: ['Planning', 'Executing'],
 }
 
 const STATE_COLOR: Record<string, string> = {
@@ -58,11 +58,7 @@ export default function TaskDetail({ task, onTransition, onDelete, onPatch }: Pr
   const [swarmResult, setSwarmResult] = useState<SwarmResult | null>(null)
   const [swarmError, setSwarmError] = useState<string | null>(null)
   const [showSwarmInput, setShowSwarmInput] = useState(false)
-  // 格式: "synapse:message" 每行一个
-  const [swarmUnits, setSwarmUnits] = useState(
-    'code-expert:实现功能A\nresearch-analyst:调研方案B'
-  )
-  // 子任务 & 阻塞状态
+  const [swarmUnits, setSwarmUnits] = useState('code-expert:实现功能A\nresearch-analyst:调研方案B')
   const [children, setChildren] = useState<Task[]>([])
   const [blocked, setBlocked] = useState<BlockedStatus | null>(null)
 
@@ -73,11 +69,7 @@ export default function TaskDetail({ task, onTransition, onDelete, onPatch }: Pr
   }, [task?.id])
 
   if (!task) {
-    return (
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#374151', fontSize: 14 }}>
-        选择左侧战团查看详情
-      </div>
-    )
+    return <div className="flex-1 flex items-center justify-center text-ww-dim text-sm">选择左侧战团查看详情</div>
   }
 
   const nextStates = NEXT_STATES[task.state] ?? []
@@ -87,191 +79,94 @@ export default function TaskDetail({ task, onTransition, onDelete, onPatch }: Pr
     setTransitioning(true)
     try { await onTransition(task.id, s) } finally { setTransitioning(false) }
   }
-
   const loadEvents = async () => {
-    if (!showEvents) {
-      const ev = await fetchEvents(task.id)
-      setEvents(ev)
-    }
+    if (!showEvents) { const ev = await fetchEvents(task.id); setEvents(ev) }
     setShowEvents(v => !v)
   }
-
-  const startEdit = () => {
-    setEditTitle(task.title)
-    setEditDesc(task.description ?? '')
-    setEditPriority(task.priority ?? 'normal')
-    setEditing(true)
-  }
-
+  const startEdit = () => { setEditTitle(task.title); setEditDesc(task.description ?? ''); setEditPriority(task.priority ?? 'normal'); setEditing(true) }
   const cancelEdit = () => setEditing(false)
-
   const saveEdit = async () => {
     setSaving(true)
-    try {
-      const updated = await patchTask(task.id, {
-        title: editTitle,
-        description: editDesc,
-        priority: editPriority,
-      })
-      onPatch(updated)
-      setEditing(false)
-    } finally {
-      setSaving(false)
-    }
+    try { const updated = await patchTask(task.id, { title: editTitle, description: editDesc, priority: editPriority }); onPatch(updated); setEditing(false) } finally { setSaving(false) }
   }
-
   const doDelete = async () => {
     if (!confirm(`确认删除战团「${task.title}」？此操作不可撤销。`)) return
     setDeleting(true)
-    try {
-      await deleteTask(task.id)
-      onDelete(task.id)
-    } finally {
-      setDeleting(false)
-    }
+    try { await deleteTask(task.id); onDelete(task.id) } finally { setDeleting(false) }
   }
-
-  const doToggleTodo = async (index: number) => {
-    const updated = await toggleTodo(task.id, index)
-    onPatch(updated)
-  }
-
+  const doToggleTodo = async (index: number) => { const updated = await toggleTodo(task.id, index); onPatch(updated) }
   const doAddTodo = async () => {
     if (!newTodo.trim()) return
     setAddingTodo(true)
-    try {
-      const updated = await appendTodo(task.id, newTodo.trim())
-      onPatch(updated)
-      setNewTodo('')
-    } finally {
-      setAddingTodo(false)
-    }
+    try { const updated = await appendTodo(task.id, newTodo.trim()); onPatch(updated); setNewTodo('') } finally { setAddingTodo(false) }
   }
-
   const doAnalyze = async () => {
-    setAnalyzing(true)
-    setAnalyzeResult(null)
-    setAnalyzeError(null)
-    try {
-      const { task: updated, analysis } = await analyzeTask(task.id)
-      onPatch(updated)
-      setAnalyzeResult(analysis)
-    } catch (e: unknown) {
-      setAnalyzeError(e instanceof Error ? e.message : '分析失败')
-    } finally {
-      setAnalyzing(false)
-    }
+    setAnalyzing(true); setAnalyzeResult(null); setAnalyzeError(null)
+    try { const { task: updated, analysis } = await analyzeTask(task.id); onPatch(updated); setAnalyzeResult(analysis) }
+    catch (e: unknown) { setAnalyzeError(e instanceof Error ? e.message : '分析失败') }
+    finally { setAnalyzing(false) }
   }
-
   const doTrial = async () => {
-    setTrialing(true)
-    setTrialResult(null)
-    setTrialError(null)
-    try {
-      const result = await trialTask(task.id, ['code-expert', 'research-analyst'], task.description || task.title)
-      setTrialResult(result)
-    } catch (e: unknown) {
-      setTrialError(e instanceof Error ? e.message : '赛马失败')
-    } finally {
-      setTrialing(false)
-    }
+    setTrialing(true); setTrialResult(null); setTrialError(null)
+    try { setTrialResult(await trialTask(task.id, ['code-expert', 'research-analyst'], task.description || task.title)) }
+    catch (e: unknown) { setTrialError(e instanceof Error ? e.message : '赛马失败') }
+    finally { setTrialing(false) }
   }
-
   const doChain = async () => {
     const synapses = chainSynapses.split(',').map(s => s.trim()).filter(Boolean)
     if (synapses.length < 2) { setChainError('链式调用至少需要 2 个小主脑'); return }
-    setChaining(true)
-    setChainResult(null)
-    setChainError(null)
-    setShowChainInput(false)
-    try {
-      const result = await chainTask(task.id, synapses, task.description || task.title)
-      setChainResult(result)
-    } catch (e: unknown) {
-      setChainError(e instanceof Error ? e.message : '链式调用失败')
-    } finally {
-      setChaining(false)
-    }
+    setChaining(true); setChainResult(null); setChainError(null); setShowChainInput(false)
+    try { setChainResult(await chainTask(task.id, synapses, task.description || task.title)) }
+    catch (e: unknown) { setChainError(e instanceof Error ? e.message : '链式调用失败') }
+    finally { setChaining(false) }
   }
-
   const doSwarm = async () => {
-    const units = swarmUnits.split('\n')
-      .map(line => line.trim())
-      .filter(Boolean)
-      .map(line => {
-        const idx = line.indexOf(':')
-        if (idx < 0) return null
-        return { synapse: line.slice(0, idx).trim(), message: line.slice(idx + 1).trim() }
-      })
-      .filter((u): u is { synapse: string; message: string } => !!u)
+    const units = swarmUnits.split('\n').map(l => l.trim()).filter(Boolean).map(line => {
+      const idx = line.indexOf(':')
+      return idx < 0 ? null : { synapse: line.slice(0, idx).trim(), message: line.slice(idx + 1).trim() }
+    }).filter((u): u is { synapse: string; message: string } => !!u)
     if (units.length === 0) { setSwarmError('至少需要一个有效 unit（格式：synapse:message）'); return }
-    setSwarming(true)
-    setSwarmResult(null)
-    setSwarmError(null)
-    setShowSwarmInput(false)
-    try {
-      const result = await swarmTask(task.id, units)
-      setSwarmResult(result)
-    } catch (e: unknown) {
-      setSwarmError(e instanceof Error ? e.message : 'Swarm 执行失败')
-    } finally {
-      setSwarming(false)
-    }
+    setSwarming(true); setSwarmResult(null); setSwarmError(null); setShowSwarmInput(false)
+    try { setSwarmResult(await swarmTask(task.id, units)) }
+    catch (e: unknown) { setSwarmError(e instanceof Error ? e.message : 'Swarm 执行失败') }
+    finally { setSwarming(false) }
   }
 
   return (
-    <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
+    <div className="flex-1 overflow-y-auto p-5">
       {/* 头部 */}
-      <div style={{ marginBottom: 16 }}>
+      <div className="mb-4">
         {editing ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <input
-              value={editTitle}
-              onChange={e => setEditTitle(e.target.value)}
-              style={{ fontSize: 16, fontWeight: 700, background: '#1e2030', border: '1px solid #2d3148', borderRadius: 6, padding: '6px 10px', color: '#e2e8f0', outline: 'none' }}
-            />
-            <textarea
-              value={editDesc}
-              onChange={e => setEditDesc(e.target.value)}
-              rows={3}
-              placeholder="任务描述（可选）"
-              style={{ fontSize: 13, background: '#1e2030', border: '1px solid #2d3148', borderRadius: 6, padding: '6px 10px', color: '#94a3b8', outline: 'none', resize: 'vertical' }}
-            />
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <span style={{ fontSize: 12, color: '#475569' }}>优先级：</span>
+          <div className="flex flex-col gap-2">
+            <input value={editTitle} onChange={e => setEditTitle(e.target.value)}
+              className="text-base font-bold bg-ww-card border border-ww-subtle rounded-md px-2.5 py-1.5 text-ww-main outline-none" />
+            <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} rows={3} placeholder="任务描述（可选）"
+              className="text-[13px] bg-ww-card border border-ww-subtle rounded-md px-2.5 py-1.5 text-ww-muted outline-none resize-y" />
+            <div className="flex gap-1.5 items-center">
+              <span className="text-xs text-ww-dim">优先级：</span>
               {PRIORITIES.map(p => (
-                <button key={p} onClick={() => setEditPriority(p)} style={{
-                  padding: '3px 10px', fontSize: 11, border: 'none', borderRadius: 4, cursor: 'pointer',
-                  background: editPriority === p ? PRIORITY_COLOR[p] : '#1e2030',
-                  color: editPriority === p ? '#fff' : '#64748b',
-                  fontWeight: editPriority === p ? 600 : 400,
-                }}>{p}</button>
+                <button key={p} onClick={() => setEditPriority(p)}
+                  className="px-2.5 py-0.5 text-[11px] border-none rounded cursor-pointer transition-colors"
+                  style={{ background: editPriority === p ? PRIORITY_COLOR[p] : undefined, color: editPriority === p ? '#fff' : '#64748b', fontWeight: editPriority === p ? 600 : 400 }}
+                >{p}</button>
               ))}
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={saveEdit} disabled={saving || !editTitle.trim()} style={{ padding: '5px 16px', background: '#7c3aed', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', fontSize: 12 }}>
-                {saving ? '保存中…' : '保存'}
-              </button>
-              <button onClick={cancelEdit} style={{ padding: '5px 12px', background: '#1e2030', border: '1px solid #2d3148', borderRadius: 6, color: '#64748b', cursor: 'pointer', fontSize: 12 }}>
-                取消
-              </button>
+            <div className="flex gap-2">
+              <button onClick={saveEdit} disabled={saving || !editTitle.trim()} className="px-4 py-1.5 bg-opus-primary border-none rounded-md text-white cursor-pointer text-xs disabled:opacity-50">{saving ? '保存中…' : '保存'}</button>
+              <button onClick={cancelEdit} className="px-3 py-1.5 bg-ww-card border border-ww-subtle rounded-md text-ww-dim cursor-pointer text-xs">取消</button>
             </div>
           </div>
         ) : (
           <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-              <span style={{ width: 10, height: 10, borderRadius: '50%', background: dot, display: 'inline-block' }} />
-              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, flex: 1 }}>{task.title}</h2>
-              <button onClick={startEdit} title="编辑" style={{ padding: '4px 8px', background: '#1e2030', border: '1px solid #2d3148', borderRadius: 6, color: '#64748b', cursor: 'pointer', fontSize: 11 }}>编辑</button>
-              <button onClick={doDelete} disabled={deleting} title="删除" style={{ padding: '4px 8px', background: '#1e2030', border: '1px solid #3d1a1a', borderRadius: 6, color: '#ef4444', cursor: 'pointer', fontSize: 11 }}>
-                {deleting ? '…' : '删除'}
-              </button>
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: dot }} />
+              <h2 className="m-0 text-lg font-bold flex-1">{task.title}</h2>
+              <button onClick={startEdit} className="px-2 py-1 bg-ww-card border border-ww-subtle rounded-md text-ww-dim cursor-pointer text-[11px]">编辑</button>
+              <button onClick={doDelete} disabled={deleting} className="px-2 py-1 bg-ww-card border border-ww-danger/30 rounded-md text-ww-danger cursor-pointer text-[11px]">{deleting ? '…' : '删除'}</button>
             </div>
-            <div style={{ display: 'flex', gap: 12, fontSize: 12, color: '#64748b', flexWrap: 'wrap' }}>
-              <span>{task.id}</span>
-              <span>·</span>
-              <span style={{ color: dot }}>{task.state}</span>
-              <span>·</span>
+            <div className="flex gap-3 text-xs text-ww-dim flex-wrap">
+              <span>{task.id}</span><span>·</span>
+              <span style={{ color: dot }}>{task.state}</span><span>·</span>
               <span style={{ color: PRIORITY_COLOR[task.priority] ?? '#94a3b8' }}>{task.priority}</span>
               {task.assignee_synapse && <><span>·</span><span>→ {task.assignee_synapse}</span></>}
               {task.exec_mode && <><span>·</span><span>模式: {task.exec_mode}</span></>}
@@ -281,29 +176,19 @@ export default function TaskDetail({ task, onTransition, onDelete, onPatch }: Pr
       </div>
 
       {!editing && task.description && (
-        <div style={{ padding: '10px 14px', background: '#13131a', borderRadius: 8, fontSize: 13, color: '#94a3b8', marginBottom: 16, lineHeight: 1.6 }}>
-          {task.description}
-        </div>
+        <div className="px-3.5 py-2.5 bg-ww-surface rounded-lg text-[13px] text-ww-muted mb-4 leading-relaxed">{task.description}</div>
       )}
 
-      {/* 操作按钮 */}
+      {/* 状态流转 */}
       {!editing && nextStates.length > 0 && (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 11, color: '#475569', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1 }}>流转到</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        <div className="mb-4">
+          <div className="text-[11px] text-ww-dim mb-1.5 uppercase tracking-wider">流转到</div>
+          <div className="flex flex-wrap gap-1.5">
             {nextStates.map(s => (
-              <button
-                key={s}
-                onClick={() => doTransition(s)}
-                disabled={transitioning}
-                style={{
-                  padding: '5px 12px', border: `1px solid ${STATE_COLOR[s] ?? '#2d3148'}`,
-                  borderRadius: 6, background: 'transparent', color: STATE_COLOR[s] ?? '#94a3b8',
-                  cursor: 'pointer', fontSize: 12,
-                }}
-              >
-                {s}
-              </button>
+              <button key={s} onClick={() => doTransition(s)} disabled={transitioning}
+                className="px-3 py-1.5 bg-transparent rounded-md cursor-pointer text-xs transition-colors hover:bg-ww-surface"
+                style={{ border: `1px solid ${STATE_COLOR[s] ?? '#2d3148'}`, color: STATE_COLOR[s] ?? '#94a3b8' }}
+              >{s}</button>
             ))}
           </div>
         </div>
@@ -311,92 +196,55 @@ export default function TaskDetail({ task, onTransition, onDelete, onPatch }: Pr
 
       {/* 智能操作 */}
       {!editing && (
-        <div style={{ marginBottom: 16, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button
-            onClick={doAnalyze}
-            disabled={analyzing}
-            style={{ padding: '5px 14px', background: analyzing ? '#2d1f5e' : '#4c1d95', border: 'none', borderRadius: 6, color: analyzing ? '#a78bfa' : '#e9d5ff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
-          >
-            {analyzing ? '🧠 分析中…' : '🧠 主脑分析'}
-          </button>
-          <button
-            onClick={doTrial}
-            disabled={trialing}
-            style={{ padding: '5px 14px', background: trialing ? '#1a2e1a' : '#14532d', border: 'none', borderRadius: 6, color: trialing ? '#4ade80' : '#bbf7d0', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
-          >
-            {trialing ? '⚔️ 赛马中…' : '⚔️ 赛马'}
-          </button>
-          <button
-            onClick={() => setShowChainInput(v => !v)}
-            disabled={chaining}
-            style={{ padding: '5px 14px', background: chaining ? '#1a1a2e' : '#1e1b4b', border: 'none', borderRadius: 6, color: chaining ? '#818cf8' : '#c7d2fe', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
-          >
-            {chaining ? '🔗 链式中…' : '🔗 链式调用'}
-          </button>
-          <button
-            onClick={() => setShowSwarmInput(v => !v)}
-            disabled={swarming}
-            style={{ padding: '5px 14px', background: swarming ? '#1a2a1a' : '#14272d', border: 'none', borderRadius: 6, color: swarming ? '#34d399' : '#a7f3d0', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
-          >
-            {swarming ? '🐛 Swarm中…' : '🐛 Swarm'}
-          </button>
+        <div className="mb-4 flex gap-2 flex-wrap">
+          <SmartBtn onClick={doAnalyze} loading={analyzing} label="🧠 主脑分析" loadingLabel="🧠 分析中…" color="opus" />
+          <SmartBtn onClick={doTrial} loading={trialing} label="⚔️ 赛马" loadingLabel="⚔️ 赛马中…" color="success" />
+          <SmartBtn onClick={() => setShowChainInput(v => !v)} loading={chaining} label="🔗 链式调用" loadingLabel="🔗 链式中…" color="info" />
+          <SmartBtn onClick={() => setShowSwarmInput(v => !v)} loading={swarming} label="🐛 Swarm" loadingLabel="🐛 Swarm中…" color="success" />
         </div>
       )}
 
-      {/* 链式调用输入 */}
+      {/* 链式输入 */}
       {!editing && showChainInput && (
-        <div style={{ marginBottom: 16, padding: '10px 14px', background: '#13131a', borderRadius: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
-          <input
-            value={chainSynapses}
-            onChange={e => setChainSynapses(e.target.value)}
-            placeholder="小主脑链（逗号分隔，≥2）"
-            style={{ flex: 1, padding: '4px 8px', background: '#0d0d10', border: '1px solid #2d3148', borderRadius: 4, color: '#e2e8f0', fontSize: 12, outline: 'none' }}
-          />
-          <button
-            onClick={doChain}
-            disabled={chaining}
-            style={{ padding: '4px 12px', background: '#4338ca', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', fontSize: 12 }}
-          >
-            执行
-          </button>
+        <div className="mb-4 px-3.5 py-2.5 bg-ww-surface rounded-lg flex gap-2 items-center">
+          <input value={chainSynapses} onChange={e => setChainSynapses(e.target.value)} placeholder="小主脑链（逗号分隔，≥2）"
+            className="flex-1 px-2 py-1 bg-ww-base border border-ww-subtle rounded text-ww-main text-xs outline-none" />
+          <button onClick={doChain} disabled={chaining} className="px-3 py-1 bg-opus-dark border-none rounded-md text-white cursor-pointer text-xs">执行</button>
         </div>
       )}
 
-      {/* 分析结果 */}
-      {analyzeError && (
-        <div style={{ marginBottom: 12, padding: '8px 12px', background: '#1a0a0a', border: '1px solid #7f1d1d', borderRadius: 6, fontSize: 12, color: '#f87171' }}>
-          ⚠ {analyzeError}
+      {/* Swarm 输入 */}
+      {!editing && showSwarmInput && (
+        <div className="mb-4 px-3.5 py-2.5 bg-ww-surface rounded-lg">
+          <div className="text-[11px] text-ww-dim mb-1.5">每行一个 unit，格式：synapse:message</div>
+          <textarea value={swarmUnits} onChange={e => setSwarmUnits(e.target.value)} rows={4}
+            className="w-full px-2 py-1.5 bg-ww-base border border-ww-subtle rounded text-ww-main text-xs outline-none resize-y font-mono" />
+          <button onClick={doSwarm} disabled={swarming} className="mt-1.5 px-3.5 py-1 bg-codex-dark border-none rounded-md text-white cursor-pointer text-xs">并发执行</button>
         </div>
       )}
+
+      <ErrorBox msg={analyzeError} />
       {analyzeResult && (
         <Section title="主脑分析结果">
-          <div style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <div><span style={{ color: '#475569' }}>概要：</span>{analyzeResult.summary}</div>
-            <div><span style={{ color: '#475569' }}>领域：</span>{analyzeResult.domain} · <span style={{ color: '#475569' }}>建议状态：</span><span style={{ color: '#a78bfa' }}>{analyzeResult.recommended_state}</span></div>
-            {analyzeResult.risks.length > 0 && (
-              <div><span style={{ color: '#475569' }}>风险：</span><span style={{ color: '#fbbf24' }}>{analyzeResult.risks.join('；')}</span></div>
-            )}
+          <div className="text-xs flex flex-col gap-1.5">
+            <div><span className="text-ww-dim">概要：</span>{analyzeResult.summary}</div>
+            <div><span className="text-ww-dim">领域：</span>{analyzeResult.domain} · <span className="text-ww-dim">建议状态：</span><span className="text-opus-primary">{analyzeResult.recommended_state}</span></div>
+            {analyzeResult.risks.length > 0 && <div><span className="text-ww-dim">风险：</span><span className="text-ww-info">{analyzeResult.risks.join('；')}</span></div>}
           </div>
         </Section>
       )}
 
-      {/* 赛马结果 */}
-      {trialError && (
-        <div style={{ marginBottom: 12, padding: '8px 12px', background: '#1a0a0a', border: '1px solid #7f1d1d', borderRadius: 6, fontSize: 12, color: '#f87171' }}>
-          ⚠ {trialError}
-        </div>
-      )}
+      <ErrorBox msg={trialError} />
       {trialResult && (
         <Section title="赛马结果">
-          <div style={{ fontSize: 12 }}>
-            <div style={{ marginBottom: 8 }}>
-              胜者：<span style={{ fontWeight: 700, color: '#22c55e' }}>{trialResult.winner ?? '（均失败）'}</span>
-              {trialResult.tie && <span style={{ color: '#fbbf24', marginLeft: 6 }}>[平局]</span>}
+          <div className="text-xs">
+            <div className="mb-2">胜者：<span className="font-bold text-ww-success">{trialResult.winner ?? '（均失败）'}</span>
+              {trialResult.tie && <span className="text-ww-info ml-1.5">[平局]</span>}
             </div>
             {Object.entries(trialResult.results).map(([synapse, res]) => (
-              <div key={synapse} style={{ display: 'flex', gap: 8, padding: '3px 0', color: '#64748b' }}>
+              <div key={synapse} className="flex gap-2 py-0.5 text-ww-dim">
                 <span>{res.success ? '✅' : '❌'}</span>
-                <span style={{ color: synapse === trialResult.winner ? '#22c55e' : '#64748b', fontWeight: synapse === trialResult.winner ? 600 : 400 }}>{synapse}</span>
+                <span className={synapse === trialResult.winner ? 'text-ww-success font-semibold' : 'text-ww-dim'}>{synapse}</span>
                 <span>rc={res.returncode}</span>
               </div>
             ))}
@@ -404,75 +252,40 @@ export default function TaskDetail({ task, onTransition, onDelete, onPatch }: Pr
         </Section>
       )}
 
-      {/* Swarm 输入 */}
-      {!editing && showSwarmInput && (
-        <div style={{ marginBottom: 16, padding: '10px 14px', background: '#13131a', borderRadius: 8 }}>
-          <div style={{ fontSize: 11, color: '#475569', marginBottom: 6 }}>每行一个 unit，格式：synapse:message</div>
-          <textarea
-            value={swarmUnits}
-            onChange={e => setSwarmUnits(e.target.value)}
-            rows={4}
-            style={{ width: '100%', boxSizing: 'border-box', padding: '6px 8px', background: '#0d0d10', border: '1px solid #2d3148', borderRadius: 4, color: '#e2e8f0', fontSize: 12, outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
-          />
-          <button
-            onClick={doSwarm}
-            disabled={swarming}
-            style={{ marginTop: 6, padding: '4px 14px', background: '#065f46', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', fontSize: 12 }}
-          >
-            并发执行
-          </button>
-        </div>
-      )}
+      <ErrorBox msg={chainError} />
+      <ErrorBox msg={swarmError} />
 
-      {/* 链式调用结果 */}
-      {chainError && (
-        <div style={{ marginBottom: 12, padding: '8px 12px', background: '#1a0a0a', border: '1px solid #7f1d1d', borderRadius: 6, fontSize: 12, color: '#f87171' }}>
-          ⚠ {chainError}
-        </div>
-      )}
       {chainResult && (
         <Section title={`链式调用结果 (${chainResult.success ? '✅ 成功' : '❌ 失败'})`}>
-          <div style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div className="text-xs flex flex-col gap-1">
             {chainResult.results.map((stage, i) => (
-              <div key={i} style={{ display: 'flex', gap: 8, padding: '4px 0', borderBottom: '1px solid #1e2030', color: '#64748b' }}>
-                <span style={{ color: '#374151', flexShrink: 0 }}>#{i + 1}</span>
-                <span style={{ color: stage.success ? '#22c55e' : '#ef4444', fontWeight: 600, minWidth: 120 }}>{stage.synapse}</span>
+              <div key={i} className="flex gap-2 py-1 border-b border-ww-subtle text-ww-dim">
+                <span className="text-ww-dim shrink-0">#{i + 1}</span>
+                <span className={`font-semibold min-w-[120px] ${stage.success ? 'text-ww-success' : 'text-ww-danger'}`}>{stage.synapse}</span>
                 <span>rc={stage.returncode}</span>
-                <span style={{ color: '#374151' }}>{stage.elapsed_sec.toFixed(1)}s</span>
-                {stage.stdout && <span style={{ color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{stage.stdout.slice(0, 80)}</span>}
+                <span className="text-ww-dim">{stage.elapsed_sec.toFixed(1)}s</span>
+                {stage.stdout && <span className="text-ww-muted overflow-hidden text-ellipsis whitespace-nowrap flex-1">{stage.stdout.slice(0, 80)}</span>}
               </div>
             ))}
             {chainResult.final_output && (
-              <div style={{ marginTop: 6, padding: '6px 8px', background: '#0d0d10', borderRadius: 4, color: '#94a3b8', fontSize: 11, maxHeight: 120, overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
-                {chainResult.final_output.slice(0, 500)}
-              </div>
+              <div className="mt-1.5 px-2 py-1.5 bg-ww-base rounded text-ww-muted text-[11px] max-h-[120px] overflow-y-auto whitespace-pre-wrap">{chainResult.final_output.slice(0, 500)}</div>
             )}
           </div>
         </Section>
       )}
 
-      {/* Swarm 结果 */}
-      {swarmError && (
-        <div style={{ marginBottom: 12, padding: '8px 12px', background: '#1a0a0a', border: '1px solid #7f1d1d', borderRadius: 6, fontSize: 12, color: '#f87171' }}>
-          ⚠ {swarmError}
-        </div>
-      )}
       {swarmResult && (
         <Section title={`Swarm 结果 (${swarmResult.success_count}/${swarmResult.total} 成功  ${(swarmResult.success_rate * 100).toFixed(0)}%)`}>
-          <div style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div className="text-xs flex flex-col gap-1">
             {swarmResult.results.map((unit, i) => (
-              <div key={i} style={{ padding: '4px 0', borderBottom: '1px solid #1e2030' }}>
-                <div style={{ display: 'flex', gap: 8, color: '#64748b' }}>
+              <div key={i} className="py-1 border-b border-ww-subtle">
+                <div className="flex gap-2 text-ww-dim">
                   <span>{unit.success ? '✅' : '❌'}</span>
-                  <span style={{ color: unit.success ? '#22c55e' : '#ef4444', fontWeight: 600, minWidth: 120 }}>{unit.synapse}</span>
+                  <span className={`font-semibold min-w-[120px] ${unit.success ? 'text-ww-success' : 'text-ww-danger'}`}>{unit.synapse}</span>
                   <span>rc={unit.returncode}</span>
-                  <span style={{ color: '#374151' }}>{unit.elapsed_sec.toFixed(1)}s</span>
+                  <span className="text-ww-dim">{unit.elapsed_sec.toFixed(1)}s</span>
                 </div>
-                {unit.stdout && (
-                  <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 2, paddingLeft: 20, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {unit.stdout.slice(0, 100)}
-                  </div>
-                )}
+                {unit.stdout && <div className="text-ww-muted text-[11px] mt-0.5 pl-5 overflow-hidden text-ellipsis whitespace-nowrap">{unit.stdout.slice(0, 100)}</div>}
               </div>
             ))}
           </div>
@@ -482,67 +295,53 @@ export default function TaskDetail({ task, onTransition, onDelete, onPatch }: Pr
       {/* Todos */}
       <Section title={`子任务 (${task.todos?.length ?? 0})`}>
         {(task.todos?.length ?? 0) > 0 && task.todos.map((todo, i) => (
-          <div key={i}
-            onClick={() => doToggleTodo(i)}
-            style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '4px 0', fontSize: 13, cursor: 'pointer' }}
-          >
-            <span style={{ color: todo.done ? '#22c55e' : '#475569', marginTop: 2, userSelect: 'none' }}>{todo.done ? '✓' : '○'}</span>
-            <span style={{ color: todo.done ? '#475569' : '#e2e8f0', textDecoration: todo.done ? 'line-through' : 'none' }}>{todo.title}</span>
+          <div key={i} onClick={() => doToggleTodo(i)} className="flex gap-2 items-start py-1 text-[13px] cursor-pointer">
+            <span className={`mt-0.5 select-none ${todo.done ? 'text-ww-success' : 'text-ww-dim'}`}>{todo.done ? '✓' : '○'}</span>
+            <span className={todo.done ? 'text-ww-dim line-through' : 'text-ww-main'}>{todo.title}</span>
           </div>
         ))}
-        {/* 新增 Todo 输入框 */}
         {!editing && (
-          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-            <input
-              value={newTodo}
-              onChange={e => setNewTodo(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && doAddTodo()}
-              placeholder="新增子任务…"
-              style={{ flex: 1, padding: '4px 8px', background: '#0d0d10', border: '1px solid #2d3148', borderRadius: 4, color: '#e2e8f0', fontSize: 12, outline: 'none' }}
-            />
-            <button
-              onClick={doAddTodo}
-              disabled={addingTodo || !newTodo.trim()}
-              style={{ padding: '4px 10px', background: '#1e2030', border: '1px solid #2d3148', borderRadius: 4, color: '#94a3b8', cursor: 'pointer', fontSize: 11 }}
-            >
-              +
-            </button>
+          <div className="flex gap-1.5 mt-2">
+            <input value={newTodo} onChange={e => setNewTodo(e.target.value)} onKeyDown={e => e.key === 'Enter' && doAddTodo()}
+              placeholder="新增子任务…" className="flex-1 px-2 py-1 bg-ww-base border border-ww-subtle rounded text-ww-main text-xs outline-none" />
+            <button onClick={doAddTodo} disabled={addingTodo || !newTodo.trim()}
+              className="px-2.5 py-1 bg-ww-card border border-ww-subtle rounded text-ww-muted cursor-pointer text-[11px] disabled:opacity-50">+</button>
           </div>
         )}
       </Section>
 
-      {/* 依赖阻塞状态 */}
+      {/* 依赖阻塞 */}
       {task.depends_on && task.depends_on.length > 0 && (
         <Section title="依赖状态">
           {blocked === null ? (
-            <div style={{ fontSize: 12, color: '#64748b' }}>加载中…</div>
+            <div className="text-xs text-ww-dim">加载中…</div>
           ) : blocked.is_blocked ? (
             <div>
-              <div style={{ fontSize: 12, color: '#f97316', marginBottom: 6 }}>⚠ 被以下依赖阻塞</div>
+              <div className="text-xs text-dare-primary mb-1.5">⚠ 被以下依赖阻塞</div>
               {blocked.pending_deps.map(dep => (
-                <div key={dep.id} style={{ display: 'flex', gap: 8, fontSize: 12, padding: '3px 0', color: '#94a3b8' }}>
+                <div key={dep.id} className="flex gap-2 text-xs py-0.5 text-ww-muted">
                   <span style={{ color: STATE_COLOR[dep.state] ?? '#64748b' }}>●</span>
-                  <span style={{ color: '#475569' }}>{dep.id.slice(0, 8)}</span>
+                  <span className="text-ww-dim">{dep.id.slice(0, 8)}</span>
                   <span>{dep.title}</span>
-                  <span style={{ color: '#374151' }}>[{dep.state}]</span>
+                  <span className="text-ww-dim">[{dep.state}]</span>
                 </div>
               ))}
             </div>
           ) : (
-            <div style={{ fontSize: 12, color: '#22c55e' }}>✓ 所有依赖已完成，可自由执行</div>
+            <div className="text-xs text-ww-success">✓ 所有依赖已完成，可自由执行</div>
           )}
         </Section>
       )}
 
-      {/* 子战团（Sub-tasks）*/}
+      {/* 子战团 */}
       {children.length > 0 && (
         <Section title={`子战团 (${children.length})`}>
           {children.map(child => (
-            <div key={child.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0', fontSize: 12 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: STATE_COLOR[child.state] ?? '#64748b', flexShrink: 0, display: 'inline-block' }} />
-              <span style={{ color: '#64748b', fontFamily: 'monospace', flexShrink: 0 }}>{child.id.slice(0, 8)}</span>
-              <span style={{ color: '#94a3b8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{child.title}</span>
-              <span style={{ color: STATE_COLOR[child.state] ?? '#64748b', flexShrink: 0 }}>{child.state}</span>
+            <div key={child.id} className="flex gap-2 items-center py-1 text-xs">
+              <span className="w-2 h-2 rounded-full shrink-0 inline-block" style={{ background: STATE_COLOR[child.state] ?? '#64748b' }} />
+              <span className="text-ww-dim font-mono shrink-0">{child.id.slice(0, 8)}</span>
+              <span className="text-ww-muted flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{child.title}</span>
+              <span className="shrink-0" style={{ color: STATE_COLOR[child.state] ?? '#64748b' }}>{child.state}</span>
             </div>
           ))}
         </Section>
@@ -551,11 +350,9 @@ export default function TaskDetail({ task, onTransition, onDelete, onPatch }: Pr
       {/* 标签 */}
       {task.labels && task.labels.length > 0 && (
         <Section title="标签">
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <div className="flex gap-1.5 flex-wrap">
             {task.labels.map((label, i) => (
-              <span key={i} style={{ padding: '2px 8px', background: '#1e2030', border: '1px solid #2d3148', borderRadius: 10, fontSize: 11, color: '#a78bfa' }}>
-                {label}
-              </span>
+              <span key={i} className="px-2 py-0.5 bg-ww-card border border-ww-subtle rounded-[10px] text-[11px] text-opus-primary">{label}</span>
             ))}
           </div>
         </Section>
@@ -565,11 +362,11 @@ export default function TaskDetail({ task, onTransition, onDelete, onPatch }: Pr
       {(task.flow_log?.length ?? 0) > 0 && (
         <Section title="流转记录">
           {[...task.flow_log].reverse().map((entry, i) => (
-            <div key={i} style={{ display: 'flex', gap: 8, fontSize: 12, padding: '3px 0', color: '#64748b' }}>
-              <span style={{ color: '#374151', flexShrink: 0 }}>{fmtTime(entry.ts)}</span>
+            <div key={i} className="flex gap-2 text-xs py-0.5 text-ww-dim">
+              <span className="text-ww-dim shrink-0">{fmtTime(entry.ts)}</span>
               <span>{entry.from ?? '—'} → <span style={{ color: STATE_COLOR[entry.to] ?? '#94a3b8' }}>{entry.to}</span></span>
-              <span style={{ color: '#374151' }}>by {entry.agent}</span>
-              {entry.reason && <span style={{ color: '#475569' }}>({entry.reason})</span>}
+              <span className="text-ww-dim">by {entry.agent}</span>
+              {entry.reason && <span className="text-ww-dim">({entry.reason})</span>}
             </div>
           ))}
         </Section>
@@ -579,26 +376,26 @@ export default function TaskDetail({ task, onTransition, onDelete, onPatch }: Pr
       {(task.progress_log?.length ?? 0) > 0 && (
         <Section title="执行进度">
           {[...task.progress_log].reverse().map((p, i) => (
-            <div key={i} style={{ padding: '4px 0', fontSize: 12 }}>
-              <div style={{ color: '#475569', marginBottom: 2 }}>{fmtTime(p.ts)} · {p.agent}</div>
-              <div style={{ color: '#94a3b8', lineHeight: 1.5 }}>{p.content}</div>
+            <div key={i} className="py-1 text-xs">
+              <div className="text-ww-dim mb-0.5">{fmtTime(p.ts)} · {p.agent}</div>
+              <div className="text-ww-muted leading-normal">{p.content}</div>
             </div>
           ))}
         </Section>
       )}
 
       {/* 事件链路 */}
-      <button onClick={loadEvents} style={{ fontSize: 12, color: '#64748b', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0', marginTop: 8 }}>
+      <button onClick={loadEvents} className="text-xs text-ww-dim bg-transparent border-none cursor-pointer py-1 mt-2 hover:text-ww-muted transition-colors">
         {showEvents ? '▾ 隐藏事件链路' : '▸ 查看事件链路'}
       </button>
       {showEvents && events && (
-        <div style={{ marginTop: 8 }}>
-          {events.length === 0 ? <span style={{ fontSize: 12, color: '#374151' }}>暂无事件记录</span> : events.map(e => (
-            <div key={e.event_id} style={{ fontSize: 11, padding: '3px 0', borderBottom: '1px solid #1a1a24', color: '#475569', display: 'flex', gap: 8 }}>
-              <span style={{ color: '#374151', flexShrink: 0 }}>{fmtTime(e.created_at)}</span>
-              <span style={{ color: '#a78bfa' }}>{e.topic}</span>
+        <div className="mt-2">
+          {events.length === 0 ? <span className="text-xs text-ww-dim">暂无事件记录</span> : events.map(e => (
+            <div key={e.event_id} className="text-[11px] py-0.5 border-b border-ww-surface text-ww-dim flex gap-2">
+              <span className="text-ww-dim shrink-0">{fmtTime(e.created_at)}</span>
+              <span className="text-opus-primary">{e.topic}</span>
               <span>{e.event_type}</span>
-              <span style={{ color: '#374151' }}>← {e.producer}</span>
+              <span className="text-ww-dim">← {e.producer}</span>
             </div>
           ))}
         </div>
@@ -609,9 +406,33 @@ export default function TaskDetail({ task, onTransition, onDelete, onPatch }: Pr
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div style={{ marginBottom: 16 }}>
-      <div style={{ fontSize: 11, color: '#475569', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1 }}>{title}</div>
-      <div style={{ background: '#13131a', borderRadius: 8, padding: '10px 14px' }}>{children}</div>
+    <div className="mb-4">
+      <div className="text-[11px] text-ww-dim mb-1.5 uppercase tracking-wider">{title}</div>
+      <div className="bg-ww-surface rounded-lg px-3.5 py-2.5">{children}</div>
+    </div>
+  )
+}
+
+function SmartBtn({ onClick, loading, label, loadingLabel, color }: {
+  onClick: () => void; loading: boolean; label: string; loadingLabel: string; color: 'opus' | 'success' | 'info'
+}) {
+  const colorMap = {
+    opus: 'bg-opus-dark/40 text-opus-light hover:bg-opus-dark/60 disabled:bg-opus-dark/20 disabled:text-opus-primary',
+    success: 'bg-codex-dark/40 text-codex-light hover:bg-codex-dark/60 disabled:bg-codex-dark/20 disabled:text-codex-primary',
+    info: 'bg-gemini-dark/40 text-gemini-light hover:bg-gemini-dark/60 disabled:bg-gemini-dark/20 disabled:text-gemini-primary',
+  }
+  return (
+    <button onClick={onClick} disabled={loading}
+      className={`px-3.5 py-1.5 border-none rounded-md cursor-pointer text-xs font-semibold transition-colors ${colorMap[color]}`}
+    >{loading ? loadingLabel : label}</button>
+  )
+}
+
+function ErrorBox({ msg }: { msg: string | null }) {
+  if (!msg) return null
+  return (
+    <div className="mb-3 px-3 py-2 bg-ww-danger/10 border border-ww-danger/30 rounded-md text-xs text-ww-danger">
+      ⚠ {msg}
     </div>
   )
 }

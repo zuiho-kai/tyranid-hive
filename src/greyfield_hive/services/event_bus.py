@@ -4,6 +4,8 @@
 Tier 3+ 可升级为 Redis Streams（接口不变）。
 """
 
+from __future__ import annotations
+
 import asyncio
 import uuid
 from datetime import datetime, timezone

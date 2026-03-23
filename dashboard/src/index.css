@@ -1,21 +1,144 @@
-*, *::before, *::after { box-sizing: border-box; }
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-body {
-  margin: 0;
-  padding: 0;
-  background: #0f0f12;
-  color: #e2e8f0;
-  font-family: system-ui, -apple-system, sans-serif;
-  -webkit-font-smoothing: antialiased;
+/* ── Clowder-AI Design Token System ─────────────────────── */
+
+:root {
+  /* 基础色 */
+  --color-base-white: #fdf8f3;
+  --color-base-black: #1e1e24;
+
+  /* Opus (紫色系) */
+  --color-opus-primary: #9b7ebd;
+  --color-opus-light: #d4c1ec;
+  --color-opus-dark: #6d5a8c;
+  --color-opus-bg: #f3eaf8;
+
+  /* Codex (绿色系) */
+  --color-codex-primary: #5b8c5a;
+  --color-codex-light: #8fb98e;
+  --color-codex-dark: #3a5f39;
+  --color-codex-bg: #eaf6ea;
+
+  /* Gemini (蓝色系) */
+  --color-gemini-primary: #5b9bd5;
+  --color-gemini-light: #9cc0e7;
+  --color-gemini-dark: #3a6fa5;
+  --color-gemini-bg: #eaf4fb;
+
+  /* DARE (琥珀色系) */
+  --color-dare-primary: #d4a76a;
+  --color-dare-light: #e8c99b;
+  --color-dare-dark: #8b6f47;
+  --color-dare-bg: #fbf5ec;
+
+  /* Co-Creator (咖啡色系) */
+  --color-cocreator-primary: #e29578;
+  --color-cocreator-light: #ffddd2;
+  --color-cocreator-dark: #815b5b;
+  --color-cocreator-bg: #fff5f2;
+
+  /* UI Tokens */
+  --bg-app: var(--color-base-white);
+  --text-primary: var(--color-base-black);
+  --text-secondary: #666666;
+  --border-radius-base: 16px;
+  --spacing-unit: 8px;
+
+  /* ── Werewolf-Cute 暗色主题（默认激活）── */
+
+  /* 背景 */
+  --ww-bg-base: #f7f1eb;
+  --ww-bg-card: #fff8f1;
+  --ww-bg-surface: #fffdf9;
+  --ww-bg-topbar: rgba(255, 248, 241, 0.92);
+
+  /* 文字 */
+  --ww-text-main: #1e1e24;
+  --ww-text-muted: #6d625a;
+  --ww-text-dim: #9b8d80;
+
+  /* 强调色 */
+  --ww-accent-danger: #d45a6a;
+  --ww-accent-cute: #e29578;
+  --ww-accent-success: #5b8c5a;
+  --ww-accent-info: #5b9bd5;
+
+  /* 状态指示 */
+  --ww-state-alive: var(--ww-accent-cute);
+  --ww-state-dead: #475569;
+  --ww-state-speaking: var(--ww-accent-info);
+  --ww-state-active: var(--ww-accent-cute);
+
+  /* 半透明变体 */
+  --ww-danger-soft: rgba(212, 90, 106, 0.1);
+  --ww-info-soft: rgba(91, 155, 213, 0.14);
+  --ww-subtle-soft: rgba(155, 126, 189, 0.08);
+  --ww-cute-soft: rgba(226, 149, 120, 0.14);
+  --ww-base-overlay: rgba(253, 248, 243, 0.92);
+
+  /* 边框与阴影 */
+  --ww-border-subtle: rgba(129, 91, 91, 0.12);
+  --ww-border-active: rgba(155, 126, 189, 0.4);
+  --ww-shadow-glow: rgba(155, 126, 189, 0.2);
 }
 
-#root {
-  height: 100vh;
-  width: 100%;
-  overflow: hidden;
+/* ── Base Layer ──────────────────────────────────────────── */
+
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    @apply m-0 p-0 font-sans antialiased;
+    background:
+      radial-gradient(circle at top left, rgba(155, 126, 189, 0.18), transparent 30%),
+      radial-gradient(circle at bottom right, rgba(226, 149, 120, 0.16), transparent 28%),
+      linear-gradient(180deg, #fffdfa 0%, #f7f1eb 100%);
+    color: var(--ww-text-main);
+    color-scheme: light;
+  }
+
+  #root {
+    @apply h-screen w-full overflow-hidden;
+  }
 }
 
-::-webkit-scrollbar { width: 4px; height: 4px; }
+/* ── Scrollbar ───────────────────────────────────────────── */
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #2d3148; border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: #475569; }
+::-webkit-scrollbar-thumb { background: var(--ww-bg-card); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--ww-text-dim); }
+
+/* ── Selection ──────────────────────────────────────────── */
+
+::selection {
+  background: rgba(155, 126, 189, 0.3);
+  color: var(--ww-text-main);
+}
+
+/* ── Focus ring ─────────────────────────────────────────── */
+
+:focus-visible {
+  outline: 1.5px solid var(--ww-accent-cute);
+  outline-offset: 1px;
+}
+
+/* ── Utility Classes ─────────────────────────────────────── */
+
+@layer utilities {
+  .text-gradient-cute {
+    background: linear-gradient(135deg, var(--ww-accent-cute), var(--ww-accent-danger));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .glow-danger {
+    box-shadow: 0 0 12px var(--ww-shadow-glow);
+  }
+
+  .glow-opus {
+    box-shadow: 0 0 12px rgba(155, 126, 189, 0.3);
+  }
+}

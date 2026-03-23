@@ -1,30 +1,48 @@
-import { useState, type CSSProperties } from 'react'
-import type { Task } from '../api'
+import { useState, type ReactNode } from 'react'
+import { RefreshCw, Sparkles } from 'lucide-react'
+import type { Synapse, Task } from '../api'
 
 interface CreateTaskInput {
   title: string
   description: string
+  priority: string
 }
 
 interface Props {
   selectedTask: Task | null
   onCreateTask: (input: CreateTaskInput) => void | Promise<void>
   onRefresh: () => void | Promise<void>
+  synapses: Synapse[]
 }
 
-export default function DetailPanel({ selectedTask, onCreateTask, onRefresh }: Props) {
-  const [isFormOpen, setIsFormOpen] = useState<boolean>(false)
-  const [title, setTitle] = useState<string>('')
-  const [description, setDescription] = useState<string>('')
-  const [isCreating, setIsCreating] = useState<boolean>(false)
+const PRIORITY_OPTIONS = ['low', 'normal', 'high', 'critical'] as const
+
+const PRIORITY_STYLES: Record<string, string> = {
+  low: 'bg-codex-bg text-codex-dark',
+  normal: 'bg-gemini-bg text-gemini-dark',
+  high: 'bg-dare-bg text-dare-dark',
+  critical: 'bg-cocreator-bg text-cocreator-dark',
+}
+
+export default function DetailPanel({
+  selectedTask,
+  onCreateTask,
+  onRefresh,
+  synapses,
+}: Props) {
+  const [isFormOpen, setIsFormOpen] = useState(false)
+  const [title, setTitle] = useState('')
+  const [description, setDescription] = useState('')
+  const [priority, setPriority] = useState<(typeof PRIORITY_OPTIONS)[number]>('normal')
+  const [isCreating, setIsCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
-  const stateHistory = selectedTask?.flow_log ?? []
+  const flowLog = selectedTask?.flow_log ?? []
+  const progressLog = selectedTask?.progress_log ?? []
+  const todos = selectedTask?.todos ?? []
 
-  const handleCreate = async (): Promise<void> => {
+  const handleCreate = async () => {
     const nextTitle = title.trim()
-    const nextDescription = description.trim()
-
     if (!nextTitle) {
       setCreateError('Title is required.')
       return
@@ -36,12 +54,14 @@ export default function DetailPanel({ selectedTask, onCreateTask, onRefresh }: P
     try {
       await onCreateTask({
         title: nextTitle,
-        description: nextDescription,
+        description: description.trim(),
+        priority,
       })
       setTitle('')
       setDescription('')
+      setPriority('normal')
       setIsFormOpen(false)
-    } catch (error: unknown) {
+    } catch (error) {
       setCreateError(error instanceof Error ? error.message : 'Failed to create task.')
     } finally {
       setIsCreating(false)
@@ -49,337 +69,369 @@ export default function DetailPanel({ selectedTask, onCreateTask, onRefresh }: P
   }
 
   return (
-    <aside style={panelStyle}>
-      <div style={headerStyle}>
-        <button
-          type="button"
-          onClick={() => {
-            setIsFormOpen(prev => !prev)
-            setCreateError(null)
-          }}
-          style={{
-            ...primaryButtonStyle,
-            width: '100%',
-          }}
-        >
-          {isFormOpen ? 'Close Create Task' : 'Create Task'}
-        </button>
-
-        {isFormOpen && (
-          <div style={cardStyle}>
-            <div style={sectionLabelStyle}>New Task</div>
-            <input
-              type="text"
-              value={title}
-              onChange={event => setTitle(event.target.value)}
-              placeholder="Task title"
-              style={inputStyle}
-            />
-            <textarea
-              value={description}
-              onChange={event => setDescription(event.target.value)}
-              placeholder="Task description"
-              rows={4}
-              style={textareaStyle}
-            />
-            {createError && <div style={errorTextStyle}>{createError}</div>}
-            <div style={formActionsStyle}>
-              <button
-                type="button"
-                onClick={handleCreate}
-                disabled={isCreating}
-                style={primaryButtonStyle}
-              >
-                {isCreating ? 'Creating...' : 'Submit'}
-              </button>
-              <button
-                type="button"
-                onClick={() => void onRefresh()}
-                style={secondaryButtonStyle}
-              >
-                Refresh
-              </button>
+    <aside className="flex h-[32vh] min-h-[260px] w-full shrink-0 flex-col overflow-hidden rounded-[24px] border border-black/10 bg-[#faf3eb]/95 text-[#201c18] shadow-[0_18px_40px_rgba(42,35,64,0.08)] backdrop-blur lg:h-full lg:w-[320px] lg:rounded-none lg:border-0 lg:border-l lg:shadow-none">
+      <div className="border-b border-black/10 px-5 pb-4 pt-5">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-[11px] uppercase tracking-[0.28em] text-[#8d7661]">
+              Control Details
             </div>
+            <h2 className="mt-2 text-xl font-semibold tracking-[-0.02em] text-[#241d17]">
+              Mission Console
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-[#7b6552]">
+              Create tasks, inspect transitions, and keep the active synapse roster in view.
+            </p>
           </div>
-        )}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void onRefresh()}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-black/10 bg-white/70 text-[#7b6552] transition hover:border-[#c7ad92] hover:text-[#241d17]"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setIsFormOpen(current => !current)
+                setCreateError(null)
+              }}
+              className="rounded-2xl bg-[#241d17] px-4 py-2.5 text-sm font-medium text-[#fff8f2] transition hover:bg-[#3a2b20]"
+            >
+              {isFormOpen ? 'Close' : 'New Task'}
+            </button>
+          </div>
+        </div>
       </div>
 
-      <div style={contentStyle}>
-        {selectedTask ? (
-          <>
-            <div style={taskTitleStyle}>{selectedTask.title}</div>
+      {isFormOpen ? (
+        <div className="border-b border-black/10 bg-white/50 px-5 py-4">
+          <div className="space-y-3">
+            <label className="block">
+              <span className="mb-1.5 block text-[11px] uppercase tracking-[0.24em] text-[#8d7661]">
+                Title
+              </span>
+              <input
+                type="text"
+                value={title}
+                onChange={event => setTitle(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === 'Enter') {
+                    void handleCreate()
+                  }
+                }}
+                placeholder="Describe the mission objective"
+                className="w-full rounded-2xl border border-black/10 bg-[#fffdfb] px-3 py-2.5 text-sm text-[#241d17] outline-none placeholder:text-[#b49a84]"
+              />
+            </label>
 
-            <div style={cardStyle}>
-              <div style={sectionLabelStyle}>Status</div>
-              <div style={statusBadgeStyle}>{selectedTask.state}</div>
-            </div>
+            <label className="block">
+              <span className="mb-1.5 block text-[11px] uppercase tracking-[0.24em] text-[#8d7661]">
+                Description
+              </span>
+              <textarea
+                value={description}
+                onChange={event => setDescription(event.target.value)}
+                rows={4}
+                placeholder="Add context, acceptance criteria, or execution notes"
+                className="w-full resize-none rounded-2xl border border-black/10 bg-[#fffdfb] px-3 py-2.5 text-sm text-[#241d17] outline-none placeholder:text-[#b49a84]"
+              />
+            </label>
 
-            <div style={cardStyle}>
-              <div style={sectionLabelStyle}>Description</div>
-              <div style={bodyTextStyle}>
+            <label className="block">
+              <span className="mb-1.5 block text-[11px] uppercase tracking-[0.24em] text-[#8d7661]">
+                Priority
+              </span>
+              <select
+                value={priority}
+                onChange={event =>
+                  setPriority(event.target.value as (typeof PRIORITY_OPTIONS)[number])
+                }
+                className="w-full rounded-2xl border border-black/10 bg-[#fffdfb] px-3 py-2.5 text-sm text-[#241d17] outline-none"
+              >
+                {PRIORITY_OPTIONS.map(option => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {createError ? <p className="text-sm text-[#b45252]">{createError}</p> : null}
+
+            <button
+              type="button"
+              onClick={() => void handleCreate()}
+              disabled={isCreating}
+              className="inline-flex w-full items-center justify-center rounded-2xl bg-[#5b8c5a] px-4 py-3 text-sm font-medium text-white transition hover:bg-[#466e45] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isCreating ? 'Creating...' : 'Create task'}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
+        <Panel title="Task Snapshot">
+          {selectedTask ? (
+            <div className="space-y-4">
+              <div>
+                <div className="text-lg font-semibold leading-snug text-[#241d17]">
+                  {selectedTask.title}
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Badge>{selectedTask.state}</Badge>
+                  <Badge tone={selectedTask.priority}>
+                    {selectedTask.priority}
+                  </Badge>
+                  {selectedTask.exec_mode ? <Badge>{selectedTask.exec_mode}</Badge> : null}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <Metric label="Flow" value={String(flowLog.length)} />
+                <Metric label="Progress" value={String(progressLog.length)} />
+                <Metric
+                  label="Todos"
+                  value={`${todos.filter(todo => todo.done).length}/${todos.length}`}
+                />
+              </div>
+
+              <div className="space-y-2 text-sm text-[#6e5d50]">
+                <Row label="Creator" value={selectedTask.creator} />
+                <Row
+                  label="Assignee"
+                  value={selectedTask.assignee_synapse ?? 'Unassigned'}
+                />
+                <Row label="Task ID" value={selectedTask.id} mono />
+                <Row label="Updated" value={formatDate(selectedTask.updated_at)} />
+              </div>
+
+              <div className="rounded-2xl bg-[#fffaf5] p-3 text-sm leading-6 text-[#6e5d50]">
                 {selectedTask.description?.trim() || 'No description provided.'}
               </div>
-            </div>
 
-            <div style={cardStyle}>
-              <div style={sectionLabelStyle}>State History</div>
-              {stateHistory.length > 0 ? (
-                <div style={timelineStyle}>
-                  {stateHistory
-                    .slice()
-                    .reverse()
-                    .map((entry, index) => (
-                      <div key={`${entry.ts}-${entry.to}-${index}`} style={timelineItemStyle}>
-                        <div style={timelineRailStyle}>
-                          <span style={timelineDotStyle} />
-                          {index < stateHistory.length - 1 && <span style={timelineLineStyle} />}
-                        </div>
-                        <div style={timelineContentStyle}>
-                          <div style={timelineStateStyle}>
-                            <span style={timelineStateFromStyle}>{entry.from ?? 'Start'}</span>
-                            <span style={timelineArrowStyle}>→</span>
-                            <span>{entry.to}</span>
-                          </div>
-                          <div style={timelineMetaStyle}>
-                            {formatDateTime(entry.ts)} | {entry.agent}
-                          </div>
-                          {entry.reason && <div style={timelineReasonStyle}>{entry.reason}</div>}
-                        </div>
-                      </div>
-                    ))}
+              {selectedTask.labels.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {selectedTask.labels.map(label => (
+                    <span
+                      key={label}
+                      className="rounded-full bg-[#efe1d1] px-2.5 py-1 text-xs font-medium text-[#765f4d]"
+                    >
+                      {label}
+                    </span>
+                  ))}
                 </div>
-              ) : (
-                <div style={emptyTextStyle}>No state transitions recorded.</div>
-              )}
+              ) : null}
             </div>
-          </>
-        ) : (
-          <div style={emptyStateStyle}>
-            <div style={sectionLabelStyle}>Task Details</div>
-            <div style={emptyTextStyle}>Select a task to inspect its status, description, and history.</div>
+          ) : (
+            <EmptyState
+              title="No task selected"
+              description="Pick a task from the left rail to inspect its current state and history."
+            />
+          )}
+        </Panel>
+
+        <Panel title="Synapse Roster">
+          {synapses.length > 0 ? (
+            <div className="space-y-2">
+              {synapses.map(synapse => (
+                <div
+                  key={synapse.id}
+                  className="flex items-center justify-between rounded-2xl bg-[#fffaf5] px-3 py-2.5"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm">{synapse.emoji || '::'}</span>
+                      <span className="truncate text-sm font-medium text-[#241d17]">
+                        {synapse.name}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-xs text-[#8d7661]">{synapse.role}</div>
+                  </div>
+                  <div className="rounded-full bg-[#eaf6ea] px-2 py-1 text-[11px] font-medium text-[#466e45]">
+                    T{synapse.tier}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              title="No synapses loaded"
+              description="The API did not return any available agents."
+            />
+          )}
+        </Panel>
+
+        <Panel title="Recent Flow">
+          {flowLog.length > 0 ? (
+            <div className="space-y-3">
+              {[...flowLog].reverse().slice(0, 6).map((entry, index) => (
+                <div key={`${entry.ts}-${entry.to}-${index}`} className="flex gap-3">
+                  <div className="flex w-4 shrink-0 flex-col items-center">
+                    <span className="mt-1 h-2 w-2 rounded-full bg-[#9b7ebd]" />
+                    {index < Math.min(flowLog.length, 6) - 1 ? (
+                      <span className="mt-1 w-px flex-1 bg-[#e4d7ca]" />
+                    ) : null}
+                  </div>
+                  <div className="min-w-0 pb-3">
+                    <div className="text-sm font-medium text-[#241d17]">
+                      {entry.from ?? 'Start'} to {entry.to}
+                    </div>
+                    <div className="mt-1 text-xs text-[#8d7661]">
+                      {formatDate(entry.ts)} by {entry.agent}
+                    </div>
+                    {entry.reason ? (
+                      <div className="mt-1 text-sm leading-6 text-[#6e5d50]">
+                        {entry.reason}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              title="No transitions yet"
+              description="State changes will appear here once the task starts moving."
+            />
+          )}
+        </Panel>
+
+        <Panel title="Progress Feed">
+          {progressLog.length > 0 ? (
+            <div className="space-y-3">
+              {[...progressLog].reverse().slice(0, 5).map((entry, index) => (
+                <div key={`${entry.ts}-${entry.agent}-${index}`} className="rounded-2xl bg-[#fffaf5] p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-medium text-[#241d17]">
+                      {entry.agent}
+                    </span>
+                    <span className="text-xs text-[#8d7661]">{formatDate(entry.ts)}</span>
+                  </div>
+                  <div className="mt-2 text-sm leading-6 text-[#6e5d50]">
+                    {entry.content}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              title="No progress yet"
+              description="Agent updates and system writebacks will show up here."
+            />
+          )}
+        </Panel>
+
+        <Panel title="Operator Notes">
+          <div className="rounded-2xl bg-[linear-gradient(135deg,#f3eaf8,#fff9f3)] p-4">
+            <div className="flex items-start gap-3">
+              <div className="rounded-2xl bg-white/80 p-2 text-[#6d5a8c]">
+                <Sparkles className="h-4 w-4" />
+              </div>
+              <div>
+                <div className="text-sm font-medium text-[#241d17]">
+                  Clowder-inspired operating posture
+                </div>
+                <p className="mt-1 text-sm leading-6 text-[#6e5d50]">
+                  Keep the left rail dense, the center pane conversational, and this panel focused
+                  on orchestration facts rather than duplicate content.
+                </p>
+              </div>
+            </div>
           </div>
-        )}
+        </Panel>
       </div>
     </aside>
   )
 }
 
-function formatDateTime(value: string): string {
-  const parsed = new Date(value)
+function Panel({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="rounded-[24px] border border-black/10 bg-white/65 p-4 shadow-[0_16px_48px_rgba(70,45,22,0.06)]">
+      <div className="mb-3 text-[11px] uppercase tracking-[0.26em] text-[#8d7661]">
+        {title}
+      </div>
+      {children}
+    </section>
+  )
+}
 
-  if (Number.isNaN(parsed.getTime())) {
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl bg-[#fffaf5] px-3 py-2 text-center">
+      <div className="text-base font-semibold text-[#241d17]">{value}</div>
+      <div className="mt-1 text-[10px] uppercase tracking-[0.2em] text-[#8d7661]">
+        {label}
+      </div>
+    </div>
+  )
+}
+
+function Badge({
+  children,
+  tone,
+}: {
+  children: ReactNode
+  tone?: string
+}) {
+  return (
+    <span
+      className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
+        tone ? PRIORITY_STYLES[tone] ?? 'bg-[#efe7dc] text-[#765f4d]' : 'bg-[#efe7dc] text-[#765f4d]'
+      }`}
+    >
+      {children}
+    </span>
+  )
+}
+
+function Row({
+  label,
+  value,
+  mono,
+}: {
+  label: string
+  value: string
+  mono?: boolean
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4">
+      <span className="text-[#8d7661]">{label}</span>
+      <span className={`${mono ? 'font-mono text-[12px]' : ''} text-right text-[#241d17]`}>
+        {value}
+      </span>
+    </div>
+  )
+}
+
+function EmptyState({
+  title,
+  description,
+}: {
+  title: string
+  description: string
+}) {
+  return (
+    <div className="rounded-2xl bg-[#fffaf5] px-4 py-5 text-center">
+      <div className="text-sm font-medium text-[#241d17]">{title}</div>
+      <p className="mt-1 text-sm leading-6 text-[#8d7661]">{description}</p>
+    </div>
+  )
+}
+
+function formatDate(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
     return value
   }
 
-  return parsed.toLocaleString('zh-CN', {
-    hour12: false,
+  return date.toLocaleString('zh-CN', {
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
+    hour12: false,
   })
-}
-
-const panelStyle: CSSProperties = {
-  width: 300,
-  minWidth: 300,
-  height: '100%',
-  display: 'flex',
-  flexDirection: 'column',
-  background: '#0d0d10',
-  borderLeft: '1px solid #1e2030',
-  color: '#e8ebf5',
-  boxSizing: 'border-box',
-}
-
-const headerStyle: CSSProperties = {
-  padding: 16,
-  borderBottom: '1px solid #1e2030',
-}
-
-const contentStyle: CSSProperties = {
-  flex: 1,
-  overflowY: 'auto',
-  padding: 16,
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 12,
-}
-
-const cardStyle: CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 10,
-  padding: 12,
-  border: '1px solid #1a1d2c',
-  borderRadius: 10,
-  background: '#111319',
-}
-
-const taskTitleStyle: CSSProperties = {
-  fontSize: 18,
-  fontWeight: 700,
-  lineHeight: 1.4,
-  color: '#f5f7ff',
-}
-
-const sectionLabelStyle: CSSProperties = {
-  fontSize: 11,
-  letterSpacing: 1.2,
-  textTransform: 'uppercase',
-  color: '#7f8aa3',
-}
-
-const bodyTextStyle: CSSProperties = {
-  fontSize: 13,
-  lineHeight: 1.6,
-  color: '#c4cbe0',
-  whiteSpace: 'pre-wrap',
-  wordBreak: 'break-word',
-}
-
-const statusBadgeStyle: CSSProperties = {
-  display: 'inline-flex',
-  alignSelf: 'flex-start',
-  padding: '5px 10px',
-  borderRadius: 999,
-  background: '#1a2338',
-  border: '1px solid #2a3654',
-  color: '#8fb7ff',
-  fontSize: 12,
-  fontWeight: 600,
-}
-
-const inputStyle: CSSProperties = {
-  width: '100%',
-  padding: '10px 12px',
-  borderRadius: 8,
-  border: '1px solid #2a2d3f',
-  background: '#090a0f',
-  color: '#f3f5fb',
-  outline: 'none',
-  boxSizing: 'border-box',
-  fontSize: 13,
-}
-
-const textareaStyle: CSSProperties = {
-  ...inputStyle,
-  resize: 'vertical',
-  minHeight: 96,
-  fontFamily: 'inherit',
-}
-
-const formActionsStyle: CSSProperties = {
-  display: 'flex',
-  gap: 8,
-}
-
-const primaryButtonStyle: CSSProperties = {
-  padding: '10px 12px',
-  border: '1px solid #35508f',
-  borderRadius: 8,
-  background: '#1f3b73',
-  color: '#f8fbff',
-  cursor: 'pointer',
-  fontSize: 13,
-  fontWeight: 600,
-}
-
-const secondaryButtonStyle: CSSProperties = {
-  padding: '10px 12px',
-  border: '1px solid #2a2d3f',
-  borderRadius: 8,
-  background: '#131620',
-  color: '#c4cbe0',
-  cursor: 'pointer',
-  fontSize: 13,
-}
-
-const errorTextStyle: CSSProperties = {
-  fontSize: 12,
-  color: '#ff8e8e',
-}
-
-const emptyStateStyle: CSSProperties = {
-  ...cardStyle,
-  marginTop: 'auto',
-  marginBottom: 'auto',
-}
-
-const emptyTextStyle: CSSProperties = {
-  fontSize: 13,
-  lineHeight: 1.6,
-  color: '#95a0b8',
-}
-
-const timelineStyle: CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 10,
-}
-
-const timelineItemStyle: CSSProperties = {
-  display: 'flex',
-  gap: 10,
-}
-
-const timelineRailStyle: CSSProperties = {
-  width: 14,
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'center',
-  flexShrink: 0,
-}
-
-const timelineDotStyle: CSSProperties = {
-  width: 8,
-  height: 8,
-  borderRadius: '50%',
-  background: '#6ea8ff',
-  marginTop: 5,
-}
-
-const timelineLineStyle: CSSProperties = {
-  width: 1,
-  flex: 1,
-  marginTop: 4,
-  background: '#2a2d3f',
-}
-
-const timelineContentStyle: CSSProperties = {
-  flex: 1,
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 4,
-  paddingBottom: 10,
-}
-
-const timelineStateStyle: CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 6,
-  fontSize: 13,
-  fontWeight: 600,
-  color: '#e8ebf5',
-}
-
-const timelineStateFromStyle: CSSProperties = {
-  color: '#9aa5bf',
-}
-
-const timelineArrowStyle: CSSProperties = {
-  color: '#5d6882',
-}
-
-const timelineMetaStyle: CSSProperties = {
-  fontSize: 11,
-  color: '#75809a',
-}
-
-const timelineReasonStyle: CSSProperties = {
-  fontSize: 12,
-  lineHeight: 1.5,
-  color: '#bcc5da',
-  whiteSpace: 'pre-wrap',
-  wordBreak: 'break-word',
 }

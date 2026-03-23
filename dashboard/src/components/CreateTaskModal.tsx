@@ -21,74 +21,69 @@ export default function CreateTaskModal({ onConfirm, onCancel }: Props) {
     }
   }
 
+  const canSubmit = title.trim().length > 0 && !submitting
+
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
-      <div style={{ background: '#13131a', border: '1px solid #2d3148', borderRadius: 12, padding: 24, width: 420, maxWidth: '90vw' }}>
-        <h3 style={{ margin: '0 0 20px', fontSize: 16, fontWeight: 700, color: '#e2e8f0' }}>新战团</h3>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60">
+      <div className="w-[420px] max-w-[90vw] rounded-xl border border-ww-subtle bg-ww-surface p-6">
+        <h3 className="mb-5 text-base font-bold text-ww-main">Create task</h3>
 
-        <label style={{ display: 'block', marginBottom: 14 }}>
-          <div style={{ fontSize: 11, color: '#64748b', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1 }}>任务名称 *</div>
+        <label className="mb-3.5 block">
+          <div className="mb-1.5 text-[11px] uppercase tracking-wider text-ww-dim">Title *</div>
           <input
-            value={title}
-            onChange={e => setTitle(e.target.value)}
-            placeholder="战团任务简述…"
             autoFocus
-            style={{
-              width: '100%', padding: '8px 12px', background: '#0f0f12', border: '1px solid #2d3148',
-              borderRadius: 6, color: '#e2e8f0', fontSize: 13, outline: 'none', boxSizing: 'border-box',
+            className="w-full rounded-md border border-ww-subtle bg-ww-base px-3 py-2 text-[13px] text-ww-main outline-none placeholder:text-ww-dim"
+            onChange={event => setTitle(event.target.value)}
+            onKeyDown={event => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                void handleSubmit()
+              }
             }}
-            onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSubmit()}
+            placeholder="Task summary"
+            value={title}
           />
         </label>
 
-        <label style={{ display: 'block', marginBottom: 14 }}>
-          <div style={{ fontSize: 11, color: '#64748b', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1 }}>描述</div>
+        <label className="mb-3.5 block">
+          <div className="mb-1.5 text-[11px] uppercase tracking-wider text-ww-dim">Description</div>
           <textarea
-            value={description}
-            onChange={e => setDescription(e.target.value)}
+            className="w-full resize-y rounded-md border border-ww-subtle bg-ww-base px-3 py-2 text-[13px] text-ww-main outline-none placeholder:text-ww-dim"
+            onChange={event => setDescription(event.target.value)}
+            placeholder="Describe the task in more detail"
             rows={3}
-            placeholder="详细描述（可选）…"
-            style={{
-              width: '100%', padding: '8px 12px', background: '#0f0f12', border: '1px solid #2d3148',
-              borderRadius: 6, color: '#e2e8f0', fontSize: 13, outline: 'none', resize: 'vertical', boxSizing: 'border-box',
-            }}
+            value={description}
           />
         </label>
 
-        <label style={{ display: 'block', marginBottom: 20 }}>
-          <div style={{ fontSize: 11, color: '#64748b', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1 }}>优先级</div>
+        <label className="mb-5 block">
+          <div className="mb-1.5 text-[11px] uppercase tracking-wider text-ww-dim">Priority</div>
           <select
+            className="cursor-pointer rounded-md border border-ww-subtle bg-ww-base px-3 py-2 text-[13px] text-ww-main outline-none"
+            onChange={event => setPriority(event.target.value)}
             value={priority}
-            onChange={e => setPriority(e.target.value)}
-            style={{
-              padding: '8px 12px', background: '#0f0f12', border: '1px solid #2d3148',
-              borderRadius: 6, color: '#e2e8f0', fontSize: 13, outline: 'none', cursor: 'pointer',
-            }}
           >
-            <option value="low">低</option>
-            <option value="normal">普通</option>
-            <option value="high">高</option>
-            <option value="critical">紧急</option>
+            <option value="low">Low</option>
+            <option value="normal">Normal</option>
+            <option value="high">High</option>
+            <option value="critical">Critical</option>
           </select>
         </label>
 
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <div className="flex justify-end gap-2">
           <button
+            className="rounded-md border border-ww-subtle bg-transparent px-4 py-[7px] text-[13px] text-ww-dim transition-colors hover:bg-ww-card"
             onClick={onCancel}
-            style={{ padding: '7px 16px', background: 'transparent', border: '1px solid #2d3148', borderRadius: 6, color: '#64748b', cursor: 'pointer', fontSize: 13 }}
+            type="button"
           >
-            取消
+            Cancel
           </button>
           <button
-            onClick={handleSubmit}
-            disabled={!title.trim() || submitting}
-            style={{
-              padding: '7px 16px', background: '#7c3aed', border: 'none', borderRadius: 6,
-              color: '#fff', cursor: title.trim() && !submitting ? 'pointer' : 'not-allowed',
-              fontSize: 13, fontWeight: 600, opacity: title.trim() && !submitting ? 1 : 0.5,
-            }}
+            className="rounded-md border-none bg-opus-primary px-4 py-[7px] text-[13px] font-semibold text-white transition-colors hover:bg-opus-dark disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!canSubmit}
+            onClick={() => void handleSubmit()}
+            type="button"
           >
-            {submitting ? '创建中…' : '创建战团'}
+            {submitting ? 'Creating…' : 'Create task'}
           </button>
         </div>
       </div>

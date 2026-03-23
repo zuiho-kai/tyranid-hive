@@ -6,21 +6,21 @@ interface Props {
 
 export default function EventStream({ events }: Props) {
   return (
-    <div style={{ width: 260, borderLeft: '1px solid #1e2030', display: 'flex', flexDirection: 'column', overflow: 'hidden', flexShrink: 0 }}>
-      <div style={{ padding: '10px 14px 6px', fontSize: 11, color: '#475569', borderBottom: '1px solid #1e2030', letterSpacing: 1, textTransform: 'uppercase' }}>
+    <div className="w-[260px] border-l border-ww-subtle flex flex-col overflow-hidden shrink-0">
+      <div className="px-3.5 pt-2.5 pb-1.5 text-[11px] text-ww-dim border-b border-ww-subtle tracking-wider uppercase">
         事件流 ({events.length})
       </div>
-      <div style={{ flex: 1, overflowY: 'auto' }}>
+      <div className="flex-1 overflow-y-auto">
         {events.length === 0 ? (
-          <div style={{ padding: 16, color: '#374151', fontSize: 12, textAlign: 'center' }}>暂无事件</div>
+          <div className="p-4 text-ww-dim text-xs text-center">暂无事件</div>
         ) : events.map(e => (
-          <div key={e.event_id} style={{ padding: '7px 12px', borderBottom: '1px solid #13131a' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
-              <span style={{ fontSize: 11, color: '#a78bfa', fontWeight: 600 }}>{e.topic}</span>
-              <span style={{ fontSize: 10, color: '#374151' }}>{fmtTime(e.created_at)}</span>
+          <div key={e.event_id} className="px-3 py-[7px] border-b border-ww-surface">
+            <div className="flex justify-between mb-0.5">
+              <span className="text-[11px] text-opus-primary font-semibold">{e.topic}</span>
+              <span className="text-[10px] text-ww-dim">{fmtTime(e.created_at)}</span>
             </div>
-            <div style={{ fontSize: 11, color: '#64748b' }}>{e.event_type}</div>
-            <div style={{ fontSize: 10, color: '#374151' }}>← {e.producer}</div>
+            <div className="text-[11px] text-ww-dim">{e.event_type}</div>
+            <div className="text-[10px] text-ww-dim">← {e.producer}</div>
           </div>
         ))}
       </div>
