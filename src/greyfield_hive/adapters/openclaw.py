@@ -179,7 +179,7 @@ class ClaudeCodeAdapter:
                 data = _json.loads(raw)
                 if data.get("is_error"):
                     stdout_text = data.get("result", raw)
-                    returncode = proc.returncode if proc.returncode else 1
+                    returncode = proc.returncode if proc.returncode is not None else 1
                 else:
                     stdout_text = data.get("result", raw)
                     returncode = 0

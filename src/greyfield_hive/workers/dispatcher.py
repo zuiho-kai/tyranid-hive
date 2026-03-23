@@ -27,6 +27,8 @@ from greyfield_hive.services.lessons_bank import LessonsBank
 from greyfield_hive.services.playbook_service import PlaybookService
 from greyfield_hive.services.fitness_service import FitnessService
 from greyfield_hive.services.gene_loader import get_gene_loader
+from greyfield_hive.services.task_service import TaskService, InvalidTransitionError
+from greyfield_hive.models.task import TaskState
 
 
 # ── 小主脑元数据（人类可读）────────────────────────────────
@@ -216,16 +218,18 @@ class DispatchWorker:
             tags = [w for w in message.split() if 3 <= len(w) <= 10][:8]
             await self._update_playbook_stats(domain=domain, tags=tags, success=success)
 
-            # 推进状态机：通知 Orchestrator 进入下一状态
+            # 推进状态机：更新 DB 状态并触发 Orchestrator 路由
             if next_state and task_id:
-                await self.bus.publish(
-                    topic=TOPIC_TASK_STATUS,
-                    trace_id=trace_id,
-                    event_type="task.status.change",
-                    producer="dispatcher",
-                    payload={"task_id": task_id, "to": next_state},
-                )
-                logger.info(f"[Dispatcher] 状态推进 {task_id} → {next_state}")
+                try:
+                    new_ts = TaskState(next_state)
+                    async with SessionLocal() as db:
+                        svc = TaskService(db)
+                        await svc.transition(task_id, new_ts, agent="dispatcher")
+                    logger.info(f"[Dispatcher] 状态推进 {task_id} → {next_state}")
+                except InvalidTransitionError as e:
+                    logger.warning(f"[Dispatcher] 非法状态跳转，跳过: {e}")
+                except Exception as e:
+                    logger.error(f"[Dispatcher] 状态推进失败 {task_id}: {e}")
 
     # ── 基因上下文注入 ────────────────────────────────────
 
