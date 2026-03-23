@@ -1,12 +1,15 @@
-import type { CSSProperties } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import type { BusEvent, Task } from '../api'
+import type { UserMessage } from '../App'
 
 interface Props {
   selectedTask: Task | null
   events: BusEvent[]
+  userMessages: UserMessage[]
+  onSendMessage: (taskId: string, content: string) => void
 }
 
-type ChatTone = 'task' | 'progress' | 'flow' | 'event'
+type ChatTone = 'task' | 'progress' | 'flow' | 'event' | 'user'
 
 interface ChatMessage {
   id: string
@@ -19,154 +22,165 @@ interface ChatMessage {
   detail?: string
 }
 
-const SHELL_STYLE: CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  height: '100%',
-  background: '#13131a',
-  color: '#e2e8f0',
-}
+export default function TrunkChat({ selectedTask, events, userMessages, onSendMessage }: Props) {
+  const [input, setInput] = useState('')
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-const HEADER_STYLE: CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  padding: '14px 16px 12px',
-  borderBottom: '1px solid #1e2030',
-  flexShrink: 0,
-}
+  const messages = selectedTask ? buildMessages(selectedTask, events, userMessages) : []
 
-const SCROLL_STYLE: CSSProperties = {
-  flex: 1,
-  overflowY: 'auto',
-  padding: '16px',
-}
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    }
+  }, [messages.length])
 
-const EMPTY_STYLE: CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  height: '100%',
-  color: '#475569',
-  fontSize: 13,
-  textAlign: 'center',
-  padding: 24,
-}
+  const handleSend = () => {
+    const text = input.trim()
+    if (!text || !selectedTask) return
+    onSendMessage(selectedTask.id, text)
+    setInput('')
+    if (textareaRef.current) textareaRef.current.style.height = 'auto'
+  }
 
-export default function TrunkChat({ selectedTask, events }: Props) {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSend()
+    }
+  }
+
+  const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value)
+    const el = e.target
+    el.style.height = 'auto'
+    el.style.height = Math.min(el.scrollHeight, 120) + 'px'
+  }
+
   if (!selectedTask) {
     return (
-      <div style={SHELL_STYLE}>
-        <div style={HEADER_STYLE}>
+      <div className="flex flex-col h-full bg-ww-surface text-ww-main">
+        <div className="flex items-center justify-between px-4 pt-3.5 pb-3 border-b border-ww-subtle shrink-0">
           <div>
-            <div style={{ fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: '#64748b' }}>Trunk Chat</div>
-            <div style={{ marginTop: 4, fontSize: 14, fontWeight: 700 }}>No task selected</div>
+            <div className="text-[11px] tracking-wider uppercase text-ww-dim">Trunk Chat</div>
+            <div className="mt-1 text-sm font-bold">No task selected</div>
           </div>
         </div>
-        <div style={EMPTY_STYLE}>Select a task to inspect its conversation trail.</div>
+        <div className="flex-1 flex items-center justify-center text-ww-dim text-[13px] text-center p-6">
+          <div>
+            <div className="text-3xl mb-3 opacity-30">💬</div>
+            <div>Select a task to inspect its conversation trail.</div>
+          </div>
+        </div>
       </div>
     )
   }
 
-  const messages = buildMessages(selectedTask, events)
-
   return (
-    <div style={SHELL_STYLE}>
-      <div style={HEADER_STYLE}>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: '#64748b' }}>Trunk Chat</div>
-          <div style={{ marginTop: 4, fontSize: 14, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+    <div className="flex flex-col h-full bg-ww-surface text-ww-main">
+      <div className="flex items-center justify-between px-4 pt-3.5 pb-3 border-b border-ww-subtle shrink-0">
+        <div className="min-w-0">
+          <div className="text-[11px] tracking-wider uppercase text-ww-dim">Trunk Chat</div>
+          <div className="mt-1 text-sm font-bold whitespace-nowrap overflow-hidden text-ellipsis">
             {selectedTask.title}
           </div>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, marginLeft: 16 }}>
-          <span style={{ fontSize: 11, color: '#94a3b8' }}>{messages.length} messages</span>
-          <span style={{ fontSize: 11, color: '#64748b' }}>{selectedTask.state}</span>
+        <div className="flex flex-col items-end gap-0.5 ml-4">
+          <span className="text-[11px] text-ww-muted">{messages.length} messages</span>
+          <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold bg-ww-info-soft text-ww-info">
+            {selectedTask.state}
+          </span>
         </div>
       </div>
 
-      <div style={SCROLL_STYLE}>
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4">
         {messages.length === 0 ? (
-          <div style={EMPTY_STYLE}>No task narrative is available yet.</div>
+          <div className="flex items-center justify-center h-full text-ww-dim text-[13px] text-center p-6">
+            No task narrative is available yet.
+          </div>
         ) : (
           messages.map(message => {
             const palette = bubblePalette(message.tone)
-            const alignRight = message.tone === 'progress'
+            const isUser = message.tone === 'user'
+            const alignRight = isUser || message.tone === 'progress'
 
             return (
               <div
                 key={message.id}
-                style={{
-                  display: 'flex',
-                  justifyContent: alignRight ? 'flex-end' : 'flex-start',
-                  marginBottom: 12,
-                }}
+                className={`flex mb-3 animate-fade-in ${alignRight ? 'justify-end' : 'justify-start'}`}
               >
-                <div style={{ width: 'min(100%, 520px)' }}>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: alignRight ? 'flex-end' : 'flex-start',
-                      gap: 8,
-                      marginBottom: 4,
-                      fontSize: 11,
-                      color: '#64748b',
-                    }}
-                  >
-                    <span style={{ color: palette.label, fontWeight: 600 }}>{message.speaker}</span>
+                {!alignRight && (
+                  <div className="w-8 h-8 rounded-full shrink-0 mr-2.5 flex items-center justify-center text-sm"
+                    style={{ background: palette.bg, border: `1px solid ${palette.border}` }}>
+                    {speakerIcon(message.speaker, message.tone)}
+                  </div>
+                )}
+                <div className={`${isUser ? 'w-[min(75%,480px)]' : 'w-[min(100%,520px)]'}`}>
+                  <div className={`flex gap-2 mb-1 text-[11px] text-ww-dim ${alignRight ? 'justify-end' : 'justify-start'}`}>
+                    <span className="font-semibold" style={{ color: palette.label }}>{message.speaker}</span>
                     <span>{formatTime(message.ts)}</span>
                   </div>
                   <div
-                    style={{
-                      background: palette.bg,
-                      border: `1px solid ${palette.border}`,
-                      borderRadius: 14,
-                      padding: '12px 14px',
-                      boxShadow: '0 10px 30px rgba(0, 0, 0, 0.16)',
-                    }}
+                    className="rounded-[14px] px-3.5 py-3 shadow-lg"
+                    style={{ background: palette.bg, border: `1px solid ${palette.border}` }}
                   >
                     {message.title && (
-                      <div style={{ fontSize: 12, fontWeight: 700, color: palette.label, marginBottom: 6 }}>
+                      <div className="text-xs font-bold mb-1.5" style={{ color: palette.label }}>
                         {message.title}
                       </div>
                     )}
-                    <div style={{ fontSize: 13, lineHeight: 1.6, color: '#e2e8f0', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    <div className="text-[13px] leading-relaxed text-ww-main whitespace-pre-wrap break-words">
                       {message.content}
                     </div>
                     {message.meta && (
-                      <div style={{ marginTop: 8, fontSize: 11, color: '#94a3b8' }}>
-                        {message.meta}
-                      </div>
+                      <div className="mt-2 text-[11px] text-ww-muted">{message.meta}</div>
                     )}
                     {message.detail && (
-                      <pre
-                        style={{
-                          margin: '10px 0 0',
-                          padding: '10px 12px',
-                          background: 'rgba(0, 0, 0, 0.22)',
-                          borderRadius: 10,
-                          overflowX: 'auto',
-                          fontSize: 11,
-                          lineHeight: 1.5,
-                          color: '#cbd5e1',
-                          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-                        }}
-                      >
+                      <pre className="mt-2.5 p-2.5 bg-black/20 rounded-[10px] overflow-x-auto text-[11px] leading-normal text-ww-muted font-mono">
                         {message.detail}
                       </pre>
                     )}
                   </div>
                 </div>
+                {alignRight && (
+                  <div className="w-8 h-8 rounded-full shrink-0 ml-2.5 flex items-center justify-center text-sm"
+                    style={{ background: palette.bg, border: `1px solid ${palette.border}` }}>
+                    {speakerIcon(message.speaker, message.tone)}
+                  </div>
+                )}
               </div>
             )
           })
         )}
       </div>
+
+      <div className="shrink-0 border-t border-ww-subtle bg-ww-topbar px-4 py-3">
+        <div className="flex items-end gap-2.5">
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={handleInput}
+            onKeyDown={handleKeyDown}
+            placeholder="Send a message..."
+            rows={1}
+            className="flex-1 px-3.5 py-2.5 rounded-xl border border-ww-subtle bg-ww-surface text-ww-main text-[13px] outline-none resize-none placeholder:text-ww-dim focus:border-ww-active transition-colors leading-relaxed"
+            style={{ maxHeight: 120 }}
+          />
+          <button
+            type="button"
+            onClick={handleSend}
+            disabled={!input.trim()}
+            className="px-4 py-2.5 rounded-xl bg-opus-primary text-white text-[13px] font-semibold cursor-pointer border-none hover:bg-opus-dark transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+          >
+            Send
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
 
-function buildMessages(task: Task, events: BusEvent[]): ChatMessage[] {
+function buildMessages(task: Task, events: BusEvent[], userMsgs: UserMessage[]): ChatMessage[] {
   const taskEvents = events.filter(event => matchesTask(task, event))
 
   const messages: ChatMessage[] = [
@@ -209,6 +223,13 @@ function buildMessages(task: Task, events: BusEvent[]): ChatMessage[] {
       content: event.event_type,
       meta: event.trace_id ? `trace ${shorten(event.trace_id)}` : undefined,
       detail: formatPayload(event.payload),
+    })),
+    ...userMsgs.map(msg => ({
+      id: msg.id,
+      ts: msg.ts,
+      tone: 'user' as const,
+      speaker: 'You',
+      content: msg.content,
     })),
   ]
 
@@ -255,13 +276,26 @@ function compactMeta(parts: Array<string | null | undefined>): string | undefine
 function bubblePalette(tone: ChatTone): { bg: string; border: string; label: string } {
   switch (tone) {
     case 'task':
-      return { bg: '#1b2332', border: '#2e3d59', label: '#7dd3fc' }
+      return { bg: 'rgba(230, 195, 106, 0.08)', border: 'rgba(230, 195, 106, 0.2)', label: '#e6c36a' }
     case 'progress':
-      return { bg: '#1f2937', border: '#334155', label: '#a78bfa' }
+      return { bg: 'rgba(155, 126, 189, 0.1)', border: 'rgba(155, 126, 189, 0.25)', label: '#9b7ebd' }
     case 'flow':
-      return { bg: '#1d2a25', border: '#29443b', label: '#4ade80' }
+      return { bg: 'rgba(139, 215, 200, 0.08)', border: 'rgba(139, 215, 200, 0.2)', label: '#8bd7c8' }
     case 'event':
-      return { bg: '#2a1f33', border: '#4c2b63', label: '#f0abfc' }
+      return { bg: 'rgba(242, 183, 168, 0.08)', border: 'rgba(242, 183, 168, 0.2)', label: '#f2b7a8' }
+    case 'user':
+      return { bg: 'rgba(91, 155, 213, 0.12)', border: 'rgba(91, 155, 213, 0.3)', label: '#5b9bd5' }
+  }
+}
+
+function speakerIcon(speaker: string, tone: ChatTone): string {
+  switch (tone) {
+    case 'user': return '👤'
+    case 'task': return '📋'
+    case 'progress': return '⚙️'
+    case 'flow': return '🔄'
+    case 'event': return '📡'
+    default: return speaker.charAt(0).toUpperCase()
   }
 }
 

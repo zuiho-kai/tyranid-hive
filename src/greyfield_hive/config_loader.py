@@ -1,5 +1,7 @@
 """配置文件加载器 —— 读取 config/ 目录下的 YAML 配置"""
 
+from __future__ import annotations
+
 from pathlib import Path
 from typing import Any
 

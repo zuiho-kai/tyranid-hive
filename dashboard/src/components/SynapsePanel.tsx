@@ -3,11 +3,7 @@ import type { Synapse, SynapseScore } from '../api'
 import { fetchFitnessLeaderboard } from '../api'
 
 const TIER_COLOR: Record<number, string> = {
-  1: '#ef4444',
-  2: '#f97316',
-  3: '#f59e0b',
-  4: '#22c55e',
-  5: '#06b6d4',
+  1: '#ef4444', 2: '#f97316', 3: '#f59e0b', 4: '#22c55e', 5: '#06b6d4',
 }
 
 interface Props {
@@ -29,36 +25,35 @@ export default function SynapsePanel({ synapses }: Props) {
 
   if (synapses.length === 0) {
     return (
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#374151', fontSize: 14 }}>
+      <div className="flex-1 flex items-center justify-center text-ww-dim text-sm">
         暂无小主脑
       </div>
     )
   }
 
   return (
-    <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
+    <div className="flex-1 overflow-y-auto p-5">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
         {synapses.map(s => {
           const sc = scores[s.id]
           return (
-            <div key={s.id} style={{ background: '#13131a', borderRadius: 10, padding: '14px 16px', border: '1px solid #1e2030' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <span style={{ fontSize: 24 }}>{s.emoji}</span>
+            <div key={s.id} className="bg-ww-surface rounded-[10px] px-4 py-3.5 border border-ww-subtle">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-2xl">{s.emoji}</span>
                 <div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0' }}>{s.name}</div>
-                  <div style={{ fontSize: 11, color: TIER_COLOR[s.tier] ?? '#64748b' }}>Tier {s.tier}</div>
+                  <div className="text-sm font-bold text-ww-main">{s.name}</div>
+                  <div className="text-[11px]" style={{ color: TIER_COLOR[s.tier] ?? '#64748b' }}>Tier {s.tier}</div>
                 </div>
               </div>
-              <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>{s.role}</div>
+              <div className="text-xs text-ww-dim leading-normal">{s.role}</div>
 
-              {/* 适存度 */}
               {sc ? (
-                <div style={{ marginTop: 10, padding: '8px 10px', background: '#0d0d14', borderRadius: 6, border: '1px solid #1e2030' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <span style={{ fontSize: 11, color: '#94a3b8' }}>适存度</span>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: '#a78bfa' }}>{sc.fitness.toFixed(2)}</span>
+                <div className="mt-2.5 px-2.5 py-2 bg-ww-base rounded-md border border-ww-subtle">
+                  <div className="flex justify-between mb-1">
+                    <span className="text-[11px] text-ww-muted">适存度</span>
+                    <span className="text-[13px] font-bold text-opus-primary">{sc.fitness.toFixed(2)}</span>
                   </div>
-                  <div style={{ display: 'flex', gap: 8, fontSize: 10, color: '#64748b' }}>
+                  <div className="flex gap-2 text-[10px] text-ww-dim">
                     <span>战功 {sc.mark_count}</span>
                     <span>✅{sc.success_count}</span>
                     <span>❌{sc.fail_count}</span>
@@ -66,10 +61,10 @@ export default function SynapsePanel({ synapses }: Props) {
                   </div>
                 </div>
               ) : (
-                <div style={{ marginTop: 10, fontSize: 11, color: '#374151' }}>暂无战功</div>
+                <div className="mt-2.5 text-[11px] text-ww-dim">暂无战功</div>
               )}
 
-              <div style={{ marginTop: 6, fontSize: 10, color: '#374151' }}>{s.id}</div>
+              <div className="mt-1.5 text-[10px] text-ww-dim">{s.id}</div>
             </div>
           )
         })}

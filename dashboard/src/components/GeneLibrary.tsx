@@ -33,9 +33,8 @@ export default function GeneLibrary() {
       const blob = new Blob([json], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
-      const ts = new Date().toISOString().slice(0, 10)
       a.href = url
-      a.download = `hive-genes-${ts}.json`
+      a.download = `hive-genes-${new Date().toISOString().slice(0, 10)}.json`
       a.click()
       URL.revokeObjectURL(url)
     } finally {
@@ -60,68 +59,48 @@ export default function GeneLibrary() {
   }
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      {/* Sub-tabs + 工具栏 */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 20px 0', borderBottom: '1px solid #1e2030' }}>
-        <div style={{ display: 'flex', gap: 2 }}>
+    <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex items-center justify-between px-5 pt-2.5 border-b border-ww-subtle">
+        <div className="flex gap-0.5">
           {(['lessons', 'playbooks'] as Tab[]).map(t => (
-            <button key={t} onClick={() => setTab(t)} style={{
-              padding: '5px 14px', border: 'none', borderRadius: '6px 6px 0 0', cursor: 'pointer', fontSize: 12,
-              background: tab === t ? '#1e2030' : 'transparent',
-              color: tab === t ? '#a78bfa' : '#64748b',
-              borderBottom: tab === t ? '2px solid #7c3aed' : '2px solid transparent',
-            }}>
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`px-3.5 py-1.5 border-none rounded-t-md cursor-pointer text-xs transition-colors ${
+                tab === t
+                  ? 'bg-ww-card text-opus-primary border-b-2 border-b-opus-primary'
+                  : 'bg-transparent text-ww-dim border-b-2 border-b-transparent hover:text-ww-muted'
+              }`}
+            >
               {t === 'lessons' ? '📚 经验教训' : '📖 作战手册'}
             </button>
           ))}
         </div>
-        {/* 导出/导入按钮 */}
-        <div style={{ display: 'flex', gap: 6, paddingBottom: 4 }}>
-          <button
-            onClick={doExport}
-            disabled={exporting}
-            title="导出全部基因为 JSON"
-            style={{ padding: '4px 10px', background: '#1e2030', border: '1px solid #2d3148', borderRadius: 4, color: '#a78bfa', cursor: 'pointer', fontSize: 11 }}
-          >
+        <div className="flex gap-1.5 pb-1">
+          <button onClick={doExport} disabled={exporting} className="px-2.5 py-1 bg-ww-card border border-ww-subtle rounded text-opus-primary cursor-pointer text-[11px] hover:bg-ww-surface transition-colors">
             {exporting ? '导出中…' : '↑ 导出'}
           </button>
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={importing}
-            title="从 JSON 文件导入基因"
-            style={{ padding: '4px 10px', background: '#1e2030', border: '1px solid #2d3148', borderRadius: 4, color: '#94a3b8', cursor: 'pointer', fontSize: 11 }}
-          >
+          <button onClick={() => fileInputRef.current?.click()} disabled={importing} className="px-2.5 py-1 bg-ww-card border border-ww-subtle rounded text-ww-muted cursor-pointer text-[11px] hover:bg-ww-surface transition-colors">
             {importing ? '导入中…' : '↓ 导入'}
           </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".json"
-            style={{ display: 'none' }}
-            onChange={e => { if (e.target.files?.[0]) doImport(e.target.files[0]) }}
-          />
+          <input ref={fileInputRef} type="file" accept=".json" className="hidden" onChange={e => { if (e.target.files?.[0]) doImport(e.target.files[0]) }} />
         </div>
       </div>
 
-      {/* 导入结果消息 */}
       {importMsg && (
-        <div style={{
-          margin: '8px 20px 0',
-          padding: '6px 12px',
-          borderRadius: 4,
-          fontSize: 12,
-          background: importMsg.startsWith('✓') ? '#052e16' : '#2d0a0a',
-          color: importMsg.startsWith('✓') ? '#22c55e' : '#ef4444',
-          border: `1px solid ${importMsg.startsWith('✓') ? '#166534' : '#7f1d1d'}`,
-        }}>
+        <div className={`mx-5 mt-2 px-3 py-1.5 rounded text-xs border ${
+          importMsg.startsWith('✓')
+            ? 'bg-ww-success/10 text-ww-success border-ww-success/30'
+            : 'bg-ww-danger/10 text-ww-danger border-ww-danger/30'
+        }`}>
           {importMsg}
-          <button onClick={() => setImportMsg(null)} style={{ float: 'right', background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 11 }}>✕</button>
+          <button onClick={() => setImportMsg(null)} className="float-right bg-transparent border-none text-ww-dim cursor-pointer text-[11px]">✕</button>
         </div>
       )}
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
+      <div className="flex-1 overflow-y-auto p-5">
         {loading ? (
-          <div style={{ color: '#374151', fontSize: 13 }}>加载中…</div>
+          <div className="text-ww-dim text-[13px]">加载中…</div>
         ) : tab === 'lessons' ? (
           <LessonsView lessons={lessons} />
         ) : (
@@ -134,21 +113,21 @@ export default function GeneLibrary() {
 
 function LessonsView({ lessons }: { lessons: Lesson[] }) {
   if (lessons.length === 0) {
-    return <div style={{ color: '#374151', fontSize: 13, textAlign: 'center', marginTop: 40 }}>暂无经验教训记录</div>
+    return <div className="text-ww-dim text-[13px] text-center mt-10">暂无经验教训记录</div>
   }
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div className="flex flex-col gap-2.5">
       {lessons.map(l => (
-        <div key={l.id} style={{ background: '#13131a', borderRadius: 8, padding: '12px 16px', border: '1px solid #1e2030' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <span style={{ fontSize: 11, padding: '2px 8px', background: '#1e2030', borderRadius: 4, color: '#8b5cf6' }}>{l.domain}</span>
-              <span style={{ fontSize: 11, padding: '2px 8px', background: outcomeColor(l.outcome) + '22', borderRadius: 4, color: outcomeColor(l.outcome) }}>{l.outcome}</span>
+        <div key={l.id} className="bg-ww-surface rounded-lg px-4 py-3 border border-ww-subtle">
+          <div className="flex justify-between mb-1.5">
+            <div className="flex gap-1.5">
+              <span className="text-[11px] px-2 py-0.5 bg-ww-card rounded text-opus-primary">{l.domain}</span>
+              <span className="text-[11px] px-2 py-0.5 rounded" style={{ background: outcomeColor(l.outcome) + '22', color: outcomeColor(l.outcome) }}>{l.outcome}</span>
             </div>
-            <span style={{ fontSize: 11, color: '#374151' }}>×{l.frequency}</span>
+            <span className="text-[11px] text-ww-dim">×{l.frequency}</span>
           </div>
-          <div style={{ fontSize: 13, color: '#e2e8f0', lineHeight: 1.6, marginBottom: 6 }}>{l.content}</div>
-          {l.tags && <div style={{ fontSize: 11, color: '#475569' }}>{l.tags}</div>}
+          <div className="text-[13px] text-ww-main leading-relaxed mb-1.5">{l.content}</div>
+          {l.tags && <div className="text-[11px] text-ww-dim">{l.tags}</div>}
         </div>
       ))}
     </div>
@@ -157,31 +136,29 @@ function LessonsView({ lessons }: { lessons: Lesson[] }) {
 
 function PlaybooksView({ playbooks }: { playbooks: Playbook[] }) {
   if (playbooks.length === 0) {
-    return <div style={{ color: '#374151', fontSize: 13, textAlign: 'center', marginTop: 40 }}>暂无作战手册</div>
+    return <div className="text-ww-dim text-[13px] text-center mt-10">暂无作战手册</div>
   }
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div className="flex flex-col gap-2.5">
       {playbooks.map(p => (
-        <div key={p.id} style={{ background: '#13131a', borderRadius: 8, padding: '12px 16px', border: `1px solid ${p.is_active ? '#2d3148' : '#1a1a24'}`, opacity: p.is_active ? 1 : 0.6 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+        <div key={p.id} className={`bg-ww-surface rounded-lg px-4 py-3 border ${p.is_active ? 'border-ww-subtle' : 'border-ww-surface opacity-60'}`}>
+          <div className="flex justify-between items-start mb-1.5">
             <div>
-              <span style={{ fontSize: 14, fontWeight: 600, color: '#e2e8f0' }}>{p.title}</span>
-              {p.crystallized && <span style={{ marginLeft: 6, fontSize: 10, color: '#06b6d4', border: '1px solid #06b6d4', borderRadius: 3, padding: '1px 5px' }}>晶化</span>}
+              <span className="text-sm font-semibold text-ww-main">{p.title}</span>
+              {p.crystallized && <span className="ml-1.5 text-[10px] text-gemini-primary border border-gemini-primary rounded px-1.5 py-px">晶化</span>}
             </div>
-            <div style={{ display: 'flex', gap: 6, fontSize: 11, color: '#64748b' }}>
+            <div className="flex gap-1.5 text-[11px] text-ww-dim">
               <span>v{p.version}</span>
               <span>·</span>
-              <span style={{ color: p.is_active ? '#22c55e' : '#374151' }}>{p.is_active ? '活跃' : '归档'}</span>
+              <span className={p.is_active ? 'text-ww-success' : 'text-ww-dim'}>{p.is_active ? '活跃' : '归档'}</span>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 10, fontSize: 11, color: '#475569', marginBottom: 6 }}>
-            <span>{p.domain}</span>
-            <span>·</span>
-            <span>使用 {p.use_count} 次</span>
-            <span>·</span>
+          <div className="flex gap-2.5 text-[11px] text-ww-dim mb-1.5">
+            <span>{p.domain}</span><span>·</span>
+            <span>使用 {p.use_count} 次</span><span>·</span>
             <span>成功率 {Math.round(p.success_rate * 100)}%</span>
           </div>
-          <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.5, whiteSpace: 'pre-wrap', maxHeight: 80, overflow: 'hidden' }}>{p.content}</div>
+          <div className="text-xs text-ww-dim leading-normal whitespace-pre-wrap max-h-20 overflow-hidden">{p.content}</div>
         </div>
       ))}
     </div>

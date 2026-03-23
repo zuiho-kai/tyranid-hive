@@ -1,15 +1,9 @@
 import type { Task } from '../api'
 
 const STATE_COLOR: Record<string, string> = {
-  Incubating:    '#6366f1',
-  Planning:      '#8b5cf6',
-  Reviewing:     '#a78bfa',
-  Spawning:      '#06b6d4',
-  Executing:     '#22c55e',
-  Consolidating: '#f59e0b',
-  Complete:      '#475569',
-  Dormant:       '#ef4444',
-  Cancelled:     '#374151',
+  Incubating: '#6366f1', Planning: '#8b5cf6', Reviewing: '#a78bfa',
+  Spawning: '#06b6d4', Executing: '#22c55e', Consolidating: '#f59e0b',
+  Complete: '#475569', Dormant: '#ef4444', Cancelled: '#374151',
 }
 
 const PRIORITY_COLOR: Record<string, string> = {
@@ -23,27 +17,27 @@ interface Props {
 }
 
 export default function TaskList({ tasks, selected, onSelect }: Props) {
-  const active   = tasks.filter(t => !['Complete', 'Cancelled'].includes(t.state))
+  const active = tasks.filter(t => !['Complete', 'Cancelled'].includes(t.state))
   const finished = tasks.filter(t => ['Complete', 'Cancelled'].includes(t.state))
 
   return (
-    <div style={{ width: 280, borderRight: '1px solid #1e2030', display: 'flex', flexDirection: 'column', overflow: 'hidden', flexShrink: 0 }}>
-      <div style={{ padding: '10px 14px 6px', fontSize: 11, color: '#475569', borderBottom: '1px solid #1e2030', letterSpacing: 1, textTransform: 'uppercase' }}>
+    <div className="w-[280px] border-r border-ww-subtle flex flex-col overflow-hidden shrink-0">
+      <div className="px-3.5 pt-2.5 pb-1.5 text-[11px] text-ww-dim border-b border-ww-subtle tracking-wider uppercase">
         活跃 ({active.length})
       </div>
-      <div style={{ flex: 1, overflowY: 'auto' }}>
+      <div className="flex-1 overflow-y-auto">
         {active.map(t => <TaskRow key={t.id} task={t} selected={selected?.id === t.id} onSelect={onSelect} />)}
         {finished.length > 0 && (
           <>
-            <div style={{ padding: '8px 14px 4px', fontSize: 11, color: '#374151', letterSpacing: 1, textTransform: 'uppercase' }}>
+            <div className="px-3.5 pt-2 pb-1 text-[11px] text-ww-dim tracking-wider uppercase">
               已完成 ({finished.length})
             </div>
             {finished.map(t => <TaskRow key={t.id} task={t} selected={selected?.id === t.id} onSelect={onSelect} />)}
           </>
         )}
         {tasks.length === 0 && (
-          <div style={{ padding: 20, color: '#374151', fontSize: 13, textAlign: 'center' }}>
-            暂无战团<br /><span style={{ fontSize: 11 }}>点击「新战团」开始</span>
+          <div className="p-5 text-ww-dim text-[13px] text-center">
+            暂无战团<br /><span className="text-[11px]">点击「新战团」开始</span>
           </div>
         )}
       </div>
@@ -54,26 +48,25 @@ export default function TaskList({ tasks, selected, onSelect }: Props) {
 function TaskRow({ task, selected, onSelect }: { task: Task; selected: boolean; onSelect: (t: Task) => void }) {
   const dot = STATE_COLOR[task.state] ?? '#64748b'
   const pri = PRIORITY_COLOR[task.priority] ?? '#64748b'
+
   return (
     <div
       onClick={() => onSelect(task)}
-      style={{
-        padding: '9px 14px', cursor: 'pointer', borderBottom: '1px solid #1a1a24',
-        background: selected ? '#1e2030' : 'transparent',
-        borderLeft: selected ? '2px solid #7c3aed' : '2px solid transparent',
-      }}
+      className={`px-3.5 py-[9px] cursor-pointer border-b border-ww-surface transition-colors ${
+        selected ? 'bg-ww-card border-l-2 border-l-opus-primary' : 'border-l-2 border-l-transparent hover:bg-ww-surface'
+      }`}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: dot, flexShrink: 0, display: 'inline-block' }} />
-        <span style={{ fontSize: 13, fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <div className="flex items-center gap-1.5 mb-0.5">
+        <span className="w-2 h-2 rounded-full shrink-0 inline-block" style={{ background: dot }} />
+        <span className="text-[13px] font-medium flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
           {task.title}
         </span>
-        <span style={{ fontSize: 10, color: pri, flexShrink: 0 }}>
+        <span className="text-[10px] shrink-0" style={{ color: pri }}>
           {task.priority !== 'normal' ? task.priority : ''}
         </span>
       </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#475569' }}>
-        <span>{task.state}</span>
+      <div className="flex justify-between text-[11px] text-ww-dim">
+        <span style={{ color: dot }}>{task.state}</span>
         <span>{task.id.split('-').pop()}</span>
       </div>
     </div>

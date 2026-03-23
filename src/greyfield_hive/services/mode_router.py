@@ -42,8 +42,10 @@ class ModeRouter:
             await self._route_solo(task, trace_id)
 
     async def _route_solo(self, task, trace_id: str) -> None:
-        """Solo: 派发给 assignee_synapse 或默认 code-expert，执行后推进到 Consolidating"""
+        """Solo: 派发给 assignee_synapse 或默认 code-expert，执行后推进到 Executing"""
         synapse = task.assignee_synapse or "code-expert"
+        # 注意：Spawning 的合法下一状态是 Executing（不是 Consolidating）
+        # 状态机：Spawning → Executing → Consolidating → Complete
         await self._bus.publish(
             topic=TOPIC_TASK_DISPATCH,
             trace_id=trace_id,
@@ -54,10 +56,10 @@ class ModeRouter:
                 "synapse": synapse,
                 "message": task.description or task.title,
                 "domain": "general",
-                "next_state": TaskState.Consolidating.value,
+                "next_state": TaskState.Executing.value,
             },
         )
-        logger.info(f"[ModeRouter] Solo → {synapse} → next={TaskState.Consolidating.value}")
+        logger.info(f"[ModeRouter] Solo → {synapse} → next={TaskState.Executing.value}")
 
     async def _route_trial(self, task_id: str, message: str,
                            meta: dict, trace_id: str) -> None:
