@@ -122,6 +122,58 @@ class MockAdapter:
         }
 
 
+# ── Claude Code CLI 适配器 ───────────────────────────────
+
+class ClaudeCodeAdapter:
+    """Claude Code CLI 适配器 —— 使用 claude -p 执行任务
+
+    与 AsyncSubprocessAdapter 的区别：
+    - 不传 synapse 参数（synapse 上下文已由 dispatcher 注入 message）
+    - 使用 -p 标志（非交互式输出模式）
+    - message 直接作为参数传入，适合虫群任务的典型消息长度
+    """
+
+    async def invoke(
+        self,
+        synapse: str,
+        message: str,
+        env: dict,
+        timeout: int,
+    ) -> dict:
+        logger.debug(f"[ClaudeCode] 调用 synapse={synapse}, msg_len={len(message)}")
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "claude", "-p", message,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+            try:
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    proc.communicate(), timeout=timeout
+                )
+            except asyncio.TimeoutError:
+                try:
+                    proc.kill()
+                    await proc.wait()
+                except ProcessLookupError:
+                    pass
+                logger.error(f"[ClaudeCode] {synapse} 超时 {timeout}s")
+                return {"returncode": -1, "stdout": "", "stderr": f"timeout after {timeout}s"}
+
+            return {
+                "returncode": proc.returncode,
+                "stdout":     stdout_bytes.decode("utf-8", errors="replace")[-5000:],
+                "stderr":     stderr_bytes.decode("utf-8", errors="replace")[-2000:],
+            }
+        except FileNotFoundError:
+            logger.warning("[ClaudeCode] claude CLI 不可用")
+            raise
+        except Exception as e:
+            logger.error(f"[ClaudeCode] 调用失败: {e}")
+            raise
+
+
 # ── 工厂函数 ─────────────────────────────────────────────
 
 def get_adapter(force_mock: bool = False) -> OpenClawAdapter:
@@ -130,7 +182,7 @@ def get_adapter(force_mock: bool = False) -> OpenClawAdapter:
     探测顺序：
       1. HIVE_ADAPTER=mock  → MockAdapter（强制 mock，常用于测试）
       2. openclaw 可执行文件 → AsyncSubprocessAdapter (openclaw agent --agent)
-      3. claude 可执行文件  → AsyncSubprocessAdapter (claude --agent)
+      3. claude 可执行文件  → ClaudeCodeAdapter (claude -p)
       4. 均不可用           → MockAdapter
     """
     if force_mock or os.environ.get("HIVE_ADAPTER") == "mock":
@@ -142,8 +194,8 @@ def get_adapter(force_mock: bool = False) -> OpenClawAdapter:
         return AsyncSubprocessAdapter(cmd=["openclaw", "agent", "--agent"])
 
     if shutil.which("claude"):
-        logger.info("[Adapter] 探测到 claude CLI，使用 AsyncSubprocessAdapter")
-        return AsyncSubprocessAdapter(cmd=["claude", "--agent"])
+        logger.info("[Adapter] 探测到 claude CLI，使用 ClaudeCodeAdapter")
+        return ClaudeCodeAdapter()
 
     logger.info("[Adapter] 未探测到 CLI，降级到 MockAdapter（开发模式）")
     return MockAdapter()
