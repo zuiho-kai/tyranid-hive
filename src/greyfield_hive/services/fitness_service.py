@@ -12,19 +12,27 @@
   - Swarm Mode：每个 unit 执行后记录
   - Dispatch（单次）：执行后记录
 
-默认战功类型（当 synapse 未配置 kill_mark_weights 时）：
-  execution_success: 1.0 (成功), execution_failure: 1.0 (失败)
+Drain 触发时机（消耗侧）：
+  - token_cost：每次 LLM 调用按输出长度扣分
+  - coordination_cost：stderr / 协调开销扣分
+  - env_failure：环境失败（网络/权限/超时）不惩罚，只记录
+
+失败分类（先分类再惩罚）：
+  - env_failure：环境失败 → 不惩罚
+  - understanding_failure：理解失败 → 轻微惩罚 ×0.1
+  - strategy_failure：策略失败 → 中等惩罚 ×0.3
+  - quality_failure：质量失败 → 严重惩罚 ×0.6
 """
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import Optional
 
 from loguru import logger
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from greyfield_hive.models.fitness import KillMark
@@ -33,20 +41,45 @@ from greyfield_hive.models.fitness import KillMark
 # 时间衰减系数：0.05 → 半衰期约 14 天
 DECAY = 0.05
 
+# 失败分类关键词
+_ENV_KEYWORDS    = {"timeout", "connection", "permission", "network", "refused", "unreachable"}
+_QUALITY_KEYWORDS = {"wrong", "incorrect", "invalid", "corrupt", "broken"}
+_UNDERSTANDING_KEYWORDS = {"unclear", "ambiguous", "misunderstood", "confused"}
+
+# 失败惩罚系数
+_FAILURE_PENALTY = {
+    "env_failure":           0.0,   # 环境失败不惩罚
+    "understanding_failure": 0.1,
+    "strategy_failure":      0.3,
+    "quality_failure":       0.6,
+}
+
 
 @dataclass
 class SynapseScore:
     synapse_id:     str
-    fitness:        float    # 衰减后的适存度
-    raw_biomass:    float    # 未衰减的原始战功总和
-    mark_count:     int      # 战功记录数
-    success_count:  int      # 成功次数
-    fail_count:     int      # 失败次数
+    fitness:        float
+    raw_biomass:    float
+    mark_count:     int
+    success_count:  int
+    fail_count:     int
 
     @property
     def success_rate(self) -> float:
         total = self.success_count + self.fail_count
         return self.success_count / total if total else 0.0
+
+
+def classify_failure(stdout: str, stderr: str) -> str:
+    """根据输出内容分类失败原因"""
+    combined = (stdout + " " + stderr).lower()
+    if any(kw in combined for kw in _ENV_KEYWORDS):
+        return "env_failure"
+    if any(kw in combined for kw in _QUALITY_KEYWORDS):
+        return "quality_failure"
+    if any(kw in combined for kw in _UNDERSTANDING_KEYWORDS):
+        return "understanding_failure"
+    return "strategy_failure"
 
 
 # ── 默认 kill_mark_weights（当 config 未定义时使用）──────────
@@ -84,44 +117,86 @@ class FitnessService:
         domain:     str,
         success:    bool,
         score:      float = 1.0,
+        stdout:     str = "",
+        stderr:     str = "",
     ) -> list[KillMark]:
-        """记录一次执行的战功（基于 kill_mark_weights 配置）"""
+        """记录一次执行的战功（失败先分类再惩罚，环境失败不背锅）"""
         weights = _get_weights(synapse_id)
         marks: list[KillMark] = []
 
         if success:
-            # 成功：所有成功相关类型 + 兜底 execution_success
             relevant = {k: v for k, v in weights.items()
                         if "fail" not in k and "penalty" not in k}
             if not relevant:
                 relevant = {"execution_success": 1.0}
         else:
-            # 失败：只记录 failure/penalty 类型，或兜底 execution_failure
+            failure_type = classify_failure(stdout, stderr)
+            penalty = _FAILURE_PENALTY[failure_type]
+            if penalty == 0.0:
+                # 环境失败：只记录，不扣分
+                logger.info(f"[Fitness] 环境失败，不惩罚 synapse={synapse_id}")
+                km = KillMark(
+                    synapse_id=synapse_id, task_id=task_id, domain=domain,
+                    mark_type=failure_type, weight=0.0, score=0.0, biomass_delta=0.0,
+                )
+                self._db.add(km)
+                await self._db.flush()
+                return [km]
             relevant = {k: v for k, v in weights.items()
                         if "fail" in k or "penalty" in k}
             if not relevant:
-                relevant = {"execution_failure": 1.0}
-            score = score * 0.3  # 失败的战功大幅削减
+                relevant = {failure_type: 1.0}
+            score = score * penalty
 
         for mark_type, weight in relevant.items():
             delta = weight * score
             km = KillMark(
-                synapse_id=synapse_id,
-                task_id=task_id,
-                domain=domain,
-                mark_type=mark_type,
-                weight=weight,
-                score=score,
-                biomass_delta=delta,
+                synapse_id=synapse_id, task_id=task_id, domain=domain,
+                mark_type=mark_type, weight=weight, score=score, biomass_delta=delta,
             )
             self._db.add(km)
             marks.append(km)
 
         await self._db.flush()
-        logger.debug(
-            f"[Fitness] 战功入库 synapse={synapse_id} "
-            f"success={success} marks={len(marks)}"
-        )
+        logger.debug(f"[Fitness] 战功入库 synapse={synapse_id} success={success} marks={len(marks)}")
+        return marks
+
+    async def record_drain(
+        self,
+        synapse_id:   str,
+        task_id:      Optional[str],
+        domain:       str,
+        token_count:  int = 0,
+        stderr_len:   int = 0,
+    ) -> list[KillMark]:
+        """记录消耗侧 Drain（token 成本 + 协调开销）"""
+        marks: list[KillMark] = []
+
+        # token 成本：每 1000 token 扣 0.1 生物质
+        if token_count > 0:
+            token_drain = min(token_count / 1000 * 0.1, 2.0)
+            km = KillMark(
+                synapse_id=synapse_id, task_id=task_id, domain=domain,
+                mark_type="token_cost", weight=0.1, score=token_count / 1000,
+                biomass_delta=-token_drain,
+            )
+            self._db.add(km)
+            marks.append(km)
+
+        # 协调开销：stderr 每 100 字节扣 0.05
+        if stderr_len > 0:
+            coord_drain = min(stderr_len / 100 * 0.05, 1.0)
+            km = KillMark(
+                synapse_id=synapse_id, task_id=task_id, domain=domain,
+                mark_type="coordination_cost", weight=0.05, score=stderr_len / 100,
+                biomass_delta=-coord_drain,
+            )
+            self._db.add(km)
+            marks.append(km)
+
+        if marks:
+            await self._db.flush()
+            logger.debug(f"[Fitness] Drain 入库 synapse={synapse_id} items={len(marks)}")
         return marks
 
     # ── 计算适存度 ────────────────────────────────────────
