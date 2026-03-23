@@ -20,6 +20,13 @@ from greyfield_hive.services.event_bus import (
     TOPIC_AGENT_HEARTBEAT,
 )
 from greyfield_hive.models.task import TaskState, STATE_SYNAPSE_MAP
+
+# 每个状态完成 dispatch 后应推进到的下一状态
+_STATE_NEXT: dict[TaskState, TaskState] = {
+    TaskState.Planning:      TaskState.Reviewing,
+    TaskState.Reviewing:     TaskState.Spawning,
+    TaskState.Consolidating: TaskState.Complete,
+}
 from greyfield_hive.db import SessionLocal
 from greyfield_hive.services.task_service import TaskService
 
@@ -139,7 +146,7 @@ class OrchestratorWorker:
                 "task_id": task_id,
                 "synapse": synapse,
                 "message": f"任务流转至 {new_state_str}，请处理",
-                "next_state": new_state_str,
+                "next_state": _STATE_NEXT.get(new_state, new_state).value,
             },
         )
 
