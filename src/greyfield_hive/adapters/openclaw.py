@@ -295,6 +295,10 @@ def get_adapter(force_mock: bool = False) -> OpenClawAdapter:
         logger.info("[Adapter] 强制使用 CodexAdapter（HIVE_ADAPTER=codex）")
         return CodexAdapter()
 
+    if os.environ.get("HIVE_ADAPTER") == "claude":
+        logger.info("[Adapter] 强制使用 ClaudeCodeAdapter（HIVE_ADAPTER=claude）")
+        return ClaudeCodeAdapter()
+
     if shutil.which("openclaw"):
         logger.info("[Adapter] 探测到 openclaw CLI，使用 AsyncSubprocessAdapter")
         return AsyncSubprocessAdapter(cmd=["openclaw", "agent", "--agent"])
