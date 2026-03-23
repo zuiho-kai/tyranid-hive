@@ -268,17 +268,22 @@ class DispatchWorker:
             gene_loader = get_gene_loader()
             system_prompt = gene_loader.get_system_prompt(synapse)
 
+            # 注意：不能使用 Markdown 标题（## 任务）作为前缀
+            # GPT-5.4 会把 "## 任务\n..." 当成模板框架而非要执行的指令
             context_block = (
-                f"## 任务\n{message}\n\n"
+                f"{message}\n\n"
                 f"---\n"
                 f"[HIVE CONTEXT]\n"
                 f"Task-ID : {task_id or '—'}\n"
                 f"Synapse : {synapse}\n"
                 f"Domain  : {domain}\n"
                 f"Role    : {system_prompt[:120].replace(chr(10), ' ')}\n"
-                f"\n## 历史经验\n{lessons_text}"
-                f"\n\n## 作战手册\n{playbooks_text}"
             )
+            # 只在有实际内容时追加历史经验和作战手册
+            if lessons_text and lessons_text != "（暂无相关经验）":
+                context_block += f"\n参考经验:\n{lessons_text}"
+            if playbooks_text and playbooks_text != "（暂无相关手册）":
+                context_block += f"\n作战手册:\n{playbooks_text}"
             return context_block
 
         except Exception as e:
