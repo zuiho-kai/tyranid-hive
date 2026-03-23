@@ -6,8 +6,9 @@
 
 探测顺序（get_adapter）：
   1. openclaw CLI （OpenClaw 框架）
-  2. claude CLI   （Claude Code 原生 CLI，功能等价）
-  3. MockAdapter  （均不可用时降级）
+  2. codex CLI    （OpenAI Codex CLI，不受进程树 403 限制）
+  3. claude CLI   （Claude Code 原生 CLI，嵌套调用会被进程树检测 403）
+  4. MockAdapter  （均不可用时降级）
 """
 
 from __future__ import annotations
@@ -200,6 +201,59 @@ class ClaudeCodeAdapter:
             raise
 
 
+# ── Codex CLI 适配器 ─────────────────────────────────────
+
+class CodexAdapter:
+    """OpenAI Codex CLI 适配器 —— 使用 codex exec 执行任务
+
+    相比 ClaudeCodeAdapter：
+    - 不受 CLAUDECODE 进程树检测限制，无 403 问题
+    - 使用 codex exec --dangerously-bypass-approvals-and-sandbox
+    """
+
+    async def invoke(
+        self,
+        synapse: str,
+        message: str,
+        env: dict,
+        timeout: int,
+    ) -> dict:
+        logger.debug(f"[Codex] 调用 synapse={synapse}, msg_len={len(message)}")
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "codex", "exec",
+                "--dangerously-bypass-approvals-and-sandbox",
+                message,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+            try:
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    proc.communicate(), timeout=timeout
+                )
+            except asyncio.TimeoutError:
+                try:
+                    proc.kill()
+                    await proc.wait()
+                except ProcessLookupError:
+                    pass
+                logger.error(f"[Codex] {synapse} 超时 {timeout}s")
+                return {"returncode": -1, "stdout": "", "stderr": f"timeout after {timeout}s"}
+
+            return {
+                "returncode": proc.returncode,
+                "stdout":     stdout_bytes.decode("utf-8", errors="replace")[-5000:],
+                "stderr":     stderr_bytes.decode("utf-8", errors="replace")[-2000:],
+            }
+        except FileNotFoundError:
+            logger.warning("[Codex] codex CLI 不可用")
+            raise
+        except Exception as e:
+            logger.error(f"[Codex] 调用失败: {e}")
+            raise
+
+
 # ── 工厂函数 ─────────────────────────────────────────────
 
 def get_adapter(force_mock: bool = False) -> OpenClawAdapter:
@@ -207,20 +261,30 @@ def get_adapter(force_mock: bool = False) -> OpenClawAdapter:
 
     探测顺序：
       1. HIVE_ADAPTER=mock  → MockAdapter（强制 mock，常用于测试）
-      2. openclaw 可执行文件 → AsyncSubprocessAdapter (openclaw agent --agent)
-      3. claude 可执行文件  → ClaudeCodeAdapter (claude -p)
-      4. 均不可用           → MockAdapter
+      2. HIVE_ADAPTER=codex → CodexAdapter（强制 codex）
+      3. openclaw 可执行文件 → AsyncSubprocessAdapter (openclaw agent --agent)
+      4. codex 可执行文件   → CodexAdapter (codex exec)
+      5. claude 可执行文件  → ClaudeCodeAdapter (claude -p，嵌套有 403 风险)
+      6. 均不可用           → MockAdapter
     """
     if force_mock or os.environ.get("HIVE_ADAPTER") == "mock":
         logger.debug("[Adapter] 强制使用 MockAdapter")
         return MockAdapter()
 
+    if os.environ.get("HIVE_ADAPTER") == "codex":
+        logger.info("[Adapter] 强制使用 CodexAdapter（HIVE_ADAPTER=codex）")
+        return CodexAdapter()
+
     if shutil.which("openclaw"):
         logger.info("[Adapter] 探测到 openclaw CLI，使用 AsyncSubprocessAdapter")
         return AsyncSubprocessAdapter(cmd=["openclaw", "agent", "--agent"])
 
+    if shutil.which("codex"):
+        logger.info("[Adapter] 探测到 codex CLI，使用 CodexAdapter")
+        return CodexAdapter()
+
     if shutil.which("claude"):
-        logger.info("[Adapter] 探测到 claude CLI，使用 ClaudeCodeAdapter")
+        logger.info("[Adapter] 探测到 claude CLI，使用 ClaudeCodeAdapter（注意：嵌套调用可能 403）")
         return ClaudeCodeAdapter()
 
     logger.info("[Adapter] 未探测到 CLI，降级到 MockAdapter（开发模式）")
