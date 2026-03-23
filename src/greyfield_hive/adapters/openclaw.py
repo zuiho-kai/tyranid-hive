@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+import tempfile
 from typing import Protocol, runtime_checkable
 
 from loguru import logger
@@ -209,6 +210,11 @@ class CodexAdapter:
     相比 ClaudeCodeAdapter：
     - 不受 CLAUDECODE 进程树检测限制，无 403 问题
     - 使用 codex exec --dangerously-bypass-approvals-and-sandbox
+
+    关键设计（参考 clowder-ai CodexAgentService）：
+    - 通过 tempfile.mkdtemp() 创建干净 cwd，避免 codex 读取项目
+      CLAUDE.md / AGENTS.md 而忽略实际任务
+    - 使用 --skip-git-repo-check 允许在非 git 目录运行
     """
 
     async def invoke(
@@ -220,14 +226,17 @@ class CodexAdapter:
     ) -> dict:
         logger.debug(f"[Codex] 调用 synapse={synapse}, msg_len={len(message)}")
 
+        # 创建干净的临时目录作为 cwd，防止 codex 读取项目指令文件
+        cwd = tempfile.mkdtemp(prefix="hive-codex-")
+
         # Windows 上 .CMD 文件需要通过 cmd.exe /c 调用
         codex_bin = shutil.which("codex") or "codex"
+        base_args = ["exec", "--dangerously-bypass-approvals-and-sandbox",
+                     "--skip-git-repo-check", message]
         if codex_bin.upper().endswith(".CMD"):
-            cmd_args = ["cmd.exe", "/c", codex_bin, "exec",
-                        "--dangerously-bypass-approvals-and-sandbox", message]
+            cmd_args = ["cmd.exe", "/c", codex_bin] + base_args
         else:
-            cmd_args = [codex_bin, "exec",
-                        "--dangerously-bypass-approvals-and-sandbox", message]
+            cmd_args = [codex_bin] + base_args
 
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -235,6 +244,7 @@ class CodexAdapter:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=env,
+                cwd=cwd,
             )
             try:
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(
@@ -260,6 +270,8 @@ class CodexAdapter:
         except Exception as e:
             logger.error(f"[Codex] 调用失败: {e}")
             raise
+        finally:
+            shutil.rmtree(cwd, ignore_errors=True)
 
 
 # ── 工厂函数 ─────────────────────────────────────────────
