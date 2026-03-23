@@ -219,11 +219,19 @@ class CodexAdapter:
         timeout: int,
     ) -> dict:
         logger.debug(f"[Codex] 调用 synapse={synapse}, msg_len={len(message)}")
+
+        # Windows 上 .CMD 文件需要通过 cmd.exe /c 调用
+        codex_bin = shutil.which("codex") or "codex"
+        if codex_bin.upper().endswith(".CMD"):
+            cmd_args = ["cmd.exe", "/c", codex_bin, "exec",
+                        "--dangerously-bypass-approvals-and-sandbox", message]
+        else:
+            cmd_args = [codex_bin, "exec",
+                        "--dangerously-bypass-approvals-and-sandbox", message]
+
         try:
             proc = await asyncio.create_subprocess_exec(
-                "codex", "exec",
-                "--dangerously-bypass-approvals-and-sandbox",
-                message,
+                *cmd_args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=env,

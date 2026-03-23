@@ -23,6 +23,8 @@ from greyfield_hive.services.event_bus import (
     TOPIC_AGENT_HEARTBEAT,
 )
 from greyfield_hive.adapters.openclaw import get_adapter, OpenClawAdapter
+from greyfield_hive.models.task import TaskState
+from greyfield_hive.services.task_service import TaskService, InvalidTransitionError
 from greyfield_hive.services.lessons_bank import LessonsBank
 from greyfield_hive.services.playbook_service import PlaybookService
 from greyfield_hive.services.fitness_service import FitnessService
