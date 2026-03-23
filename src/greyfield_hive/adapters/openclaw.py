@@ -124,13 +124,18 @@ class MockAdapter:
 
 # ── Claude Code CLI 适配器 ───────────────────────────────
 
+# 子进程中必须清除的环境变量，否则 claude -p 会返回 403
+_BLOCKED_ENV_KEYS = frozenset({"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"})
+
+
 class ClaudeCodeAdapter:
     """Claude Code CLI 适配器 —— 使用 claude -p 执行任务
 
     与 AsyncSubprocessAdapter 的区别：
     - 不传 synapse 参数（synapse 上下文已由 dispatcher 注入 message）
     - 使用 -p 标志（非交互式输出模式）
-    - message 直接作为参数传入，适合虫群任务的典型消息长度
+    - 清除 CLAUDECODE / CLAUDE_CODE_ENTRYPOINT，防止嵌套调用返回 403
+    - --output-format json 返回单条 JSON，解析 result 字段
     """
 
     async def invoke(
@@ -140,13 +145,20 @@ class ClaudeCodeAdapter:
         env: dict,
         timeout: int,
     ) -> dict:
+        import json as _json
+
+        # 清除会触发 403 的环境变量
+        clean_env = {k: v for k, v in env.items() if k not in _BLOCKED_ENV_KEYS}
+
         logger.debug(f"[ClaudeCode] 调用 synapse={synapse}, msg_len={len(message)}")
         try:
             proc = await asyncio.create_subprocess_exec(
                 "claude", "-p", message,
+                "--output-format", "json",
+                "--dangerously-skip-permissions",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                env=env,
+                env=clean_env,
             )
             try:
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(
@@ -161,9 +173,23 @@ class ClaudeCodeAdapter:
                 logger.error(f"[ClaudeCode] {synapse} 超时 {timeout}s")
                 return {"returncode": -1, "stdout": "", "stderr": f"timeout after {timeout}s"}
 
+            raw = stdout_bytes.decode("utf-8", errors="replace")
+            # 解析 JSON 输出，提取 result 字段作为 stdout
+            try:
+                data = _json.loads(raw)
+                if data.get("is_error"):
+                    stdout_text = data.get("result", raw)
+                    returncode = proc.returncode or 1
+                else:
+                    stdout_text = data.get("result", raw)
+                    returncode = 0
+            except _json.JSONDecodeError:
+                stdout_text = raw
+                returncode = proc.returncode
+
             return {
-                "returncode": proc.returncode,
-                "stdout":     stdout_bytes.decode("utf-8", errors="replace")[-5000:],
+                "returncode": returncode,
+                "stdout":     stdout_text[-5000:],
                 "stderr":     stderr_bytes.decode("utf-8", errors="replace")[-2000:],
             }
         except FileNotFoundError:
