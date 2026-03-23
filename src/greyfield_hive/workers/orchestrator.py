@@ -126,7 +126,9 @@ class OrchestratorWorker:
         # 特定状态需要主动派发
         synapse = STATE_SYNAPSE_MAP.get(new_state)
         if synapse is None:
-            # Spawning/Executing 由 dispatcher 自行处理，无需编排器介入
+            # Spawning → ModeRouter 路由到对应执行路径
+            if new_state == TaskState.Spawning:
+                asyncio.create_task(self._handle_spawning(task_id, event.trace_id))
             return
 
         logger.info(f"[Orchestrator] {task_id}: {new_state_str} → 派发给 {synapse}")
@@ -142,6 +144,17 @@ class OrchestratorWorker:
                 "next_state": new_state_str,
             },
         )
+
+    async def _handle_spawning(self, task_id: str, trace_id: str) -> None:
+        """Spawning 状态：调用 ModeRouter 路由到对应执行路径"""
+        try:
+            from greyfield_hive.db import SessionLocal
+            from greyfield_hive.services.mode_router import ModeRouter
+            async with SessionLocal() as db:
+                router = ModeRouter(db)
+                await router.route(task_id, trace_id)
+        except Exception as e:
+            logger.error(f"[Orchestrator] ModeRouter 失败 {task_id}: {e}")
 
     async def _on_task_stalled(self, event: BusEvent) -> None:
         """阻塞 → 通知主脑介入"""

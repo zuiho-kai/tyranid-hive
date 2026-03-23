@@ -28,12 +28,17 @@ _CONFIG_ROOT = Path(__file__).parent.parent.parent.parent.parent / "config"
 @dataclass
 class OvermindResult:
     """主脑分析结果"""
-    summary: str                          # 一句话概括
-    todos: list[str]                      # 拆解出的子任务列表（字符串）
-    risks: list[str]                      # 识别到的风险点
-    recommended_state: str                # 建议流转到的状态
-    domain: str                           # 任务领域
-    raw_response: str = ""                # 原始 LLM 响应（调试用）
+    summary: str
+    todos: list[str]
+    risks: list[str]
+    recommended_state: str
+    domain: str
+    raw_response: str = ""
+    exec_mode: str = "solo"
+    mode_justification: str = ""
+    trial_candidates: list[str] = field(default_factory=list)
+    chain_stages: list[str] = field(default_factory=list)
+    swarm_units: list[dict] = field(default_factory=list)
 
 
 # ── 基因上下文加载 ────────────────────────────────────────
@@ -105,6 +110,12 @@ _SYSTEM_TEMPLATE = """\
 ## 强制规则（宪法）
 {constitution}
 
+## 执行模式选择规则
+- solo：简单任务，单主脑直接执行（默认）
+- trial：有多种可行方案、需要择优时，双路赛马
+- chain：多阶段线性依赖任务，串行接棒
+- swarm：多个完全独立的子任务，可并行执行
+
 ## 输出格式
 你的回复必须是一个 JSON 对象，格式如下（不要包含任何其他内容）：
 {{
@@ -112,10 +123,19 @@ _SYSTEM_TEMPLATE = """\
   "domain": "任务领域（如 coding / devops / research / planning）",
   "todos": ["子任务1", "子任务2", "子任务3"],
   "risks": ["风险点1", "风险点2"],
-  "recommended_state": "Planning"
+  "recommended_state": "Planning",
+  "exec_mode": "solo",
+  "mode_justification": "选择该模式的理由",
+  "trial_candidates": [],
+  "chain_stages": [],
+  "swarm_units": []
 }}
 
 recommended_state 只能是以下之一：Planning / Executing / Dormant
+exec_mode 只能是以下之一：solo / trial / chain / swarm
+trial_candidates：Trial 模式时填两个 synapse ID，如 ["code-expert", "research-analyst"]
+chain_stages：Chain 模式时填有序 synapse 列表，如 ["code-expert", "code-expert"]
+swarm_units：Swarm 模式时填 unit 列表，如 [{{"synapse": "code-expert", "message": "子任务描述"}}]
 """
 
 _USER_TEMPLATE = """\
@@ -209,6 +229,11 @@ class OvermindAgent:
                     raw_response=raw,
                 )
 
+        valid_modes = {"solo", "trial", "chain", "swarm"}
+        exec_mode = str(data.get("exec_mode", "solo")).lower()
+        if exec_mode not in valid_modes:
+            exec_mode = "solo"
+
         return OvermindResult(
             summary=str(data.get("summary", "")),
             todos=[str(t) for t in data.get("todos", []) if t],
@@ -216,6 +241,11 @@ class OvermindAgent:
             recommended_state=str(data.get("recommended_state", "Planning")),
             domain=str(data.get("domain", "general")),
             raw_response=raw,
+            exec_mode=exec_mode,
+            mode_justification=str(data.get("mode_justification", "")),
+            trial_candidates=[str(s) for s in data.get("trial_candidates", []) if s],
+            chain_stages=[str(s) for s in data.get("chain_stages", []) if s],
+            swarm_units=[u for u in data.get("swarm_units", []) if isinstance(u, dict)],
         )
 
     async def analyze(

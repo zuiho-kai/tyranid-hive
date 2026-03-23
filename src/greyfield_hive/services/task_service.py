@@ -116,6 +116,17 @@ class TaskService:
             raise TaskNotFoundError(task_uuid)
         return task
 
+    async def update_exec_mode(self, task_id: str, mode: str) -> Task:
+        """更新任务执行模式（由主脑在 Planning 阶段调用）"""
+        from greyfield_hive.models.task import ExecutionMode
+        task = await self.get_by_id(task_id)
+        try:
+            task.exec_mode = ExecutionMode(mode)
+        except ValueError:
+            task.exec_mode = ExecutionMode.Solo
+        await self.db.flush()
+        return task
+
     # 优先级排序权重（数字越小排越前）
     _PRIORITY_ORDER = {"critical": 0, "high": 1, "normal": 2, "low": 3}
 
