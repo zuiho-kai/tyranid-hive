@@ -188,6 +188,10 @@ class DispatchWorker:
             if task_id:
                 await self._persist_progress(task_id, synapse, result)
 
+            # 主脑输出：提取 exec_mode 并保存到任务
+            if synapse == "overmind" and task_id:
+                await self._save_exec_mode(task_id, result)
+
             # 自动写入经验教训
             await self._write_outcome_lesson(
                 task_id=task_id,
@@ -377,6 +381,37 @@ class DispatchWorker:
             logger.debug(f"[Dispatcher] 任务不存在，跳过进度回写: {task_id}")
         except Exception as e:
             logger.warning(f"[Dispatcher] 进度回写失败 {task_id}: {e}")
+
+    # ── exec_mode 提取 ───────────────────────────────────
+
+    async def _save_exec_mode(self, task_id: str, result: dict) -> None:
+        """从主脑 stdout 提取 exec_mode 并保存到任务 meta"""
+        import json
+        import re
+        stdout = result.get("stdout", "")
+        try:
+            text = re.sub(r"^```(?:json)?\s*", "", stdout.strip(), flags=re.MULTILINE)
+            text = re.sub(r"\s*```$", "", text, flags=re.MULTILINE)
+            m = re.search(r"\{.*\}", text, re.DOTALL)
+            if not m:
+                return
+            data = json.loads(m.group())
+            exec_mode = str(data.get("exec_mode", "solo")).lower()
+            if exec_mode not in {"solo", "trial", "chain", "swarm"}:
+                exec_mode = "solo"
+            async with SessionLocal() as db:
+                from greyfield_hive.services.task_service import TaskService
+                svc = TaskService(db)
+                task = await svc.update_exec_mode(task_id, exec_mode)
+                meta = dict(task.meta or {})
+                for key in ("trial_candidates", "chain_stages", "swarm_units"):
+                    if key in data:
+                        meta[key] = data[key]
+                task.meta = meta
+                await db.commit()
+                logger.info(f"[Dispatcher] exec_mode={exec_mode} 已保存 → {task_id}")
+        except Exception as e:
+            logger.warning(f"[Dispatcher] exec_mode 提取失败 {task_id}: {e}")
 
     # ── 调用 OpenClaw ────────────────────────────────────
 
