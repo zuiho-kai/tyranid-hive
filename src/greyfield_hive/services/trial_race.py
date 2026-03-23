@@ -226,6 +226,27 @@ class TrialRaceService:
         # 回写 progress_log + 写入经验
         await self._persist_all(trial, message, domain)
 
+        # 发布 TrialClosed 事件（供 EvolutionMaster 订阅）
+        try:
+            from greyfield_hive.services.event_bus import get_event_bus, TOPIC_TRIAL_CLOSED
+            await get_event_bus().publish(
+                topic=TOPIC_TRIAL_CLOSED,
+                event_type="trial.closed",
+                producer="trial-race",
+                payload={
+                    "task_id": task_id,
+                    "domain": domain,
+                    "winner": winner_name,
+                    "tie": tie,
+                    "scores": {
+                        synapse_a: score_a.total,
+                        synapse_b: score_b.total,
+                    },
+                },
+            )
+        except Exception as e:
+            logger.warning(f"[TrialRace] TrialClosed 事件发布失败: {e}")
+
         return trial
 
     async def _persist_all(
