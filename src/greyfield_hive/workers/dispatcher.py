@@ -18,6 +18,7 @@ from greyfield_hive.services.event_bus import (
     get_event_bus,
     BusEvent,
     TOPIC_TASK_DISPATCH,
+    TOPIC_TASK_STATUS,
     TOPIC_AGENT_THOUGHTS,
     TOPIC_AGENT_HEARTBEAT,
 )
@@ -141,12 +142,13 @@ class DispatchWorker:
 
     async def _dispatch(self, event: BusEvent) -> None:
         async with self._sem:
-            payload  = event.payload
-            task_id  = payload.get("task_id", "")
-            synapse  = payload.get("synapse", "overmind")
-            message  = payload.get("message", "")
-            domain   = payload.get("domain", _SYNAPSE_DOMAIN.get(synapse, "general"))
-            trace_id = event.trace_id
+            payload    = event.payload
+            task_id    = payload.get("task_id", "")
+            synapse    = payload.get("synapse", "overmind")
+            message    = payload.get("message", "")
+            domain     = payload.get("domain", _SYNAPSE_DOMAIN.get(synapse, "general"))
+            next_state = payload.get("next_state", "")
+            trace_id   = event.trace_id
 
             await self.bus.publish(
                 topic=TOPIC_AGENT_HEARTBEAT,
@@ -213,6 +215,17 @@ class DispatchWorker:
             success = _infer_success(result)
             tags = [w for w in message.split() if 3 <= len(w) <= 10][:8]
             await self._update_playbook_stats(domain=domain, tags=tags, success=success)
+
+            # 推进状态机：通知 Orchestrator 进入下一状态
+            if next_state and task_id:
+                await self.bus.publish(
+                    topic=TOPIC_TASK_STATUS,
+                    trace_id=trace_id,
+                    event_type="task.status.change",
+                    producer="dispatcher",
+                    payload={"task_id": task_id, "to": next_state},
+                )
+                logger.info(f"[Dispatcher] 状态推进 {task_id} → {next_state}")
 
     # ── 基因上下文注入 ────────────────────────────────────
 
