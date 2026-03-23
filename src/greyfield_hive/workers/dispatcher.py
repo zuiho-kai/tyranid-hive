@@ -269,15 +269,15 @@ class DispatchWorker:
             system_prompt = gene_loader.get_system_prompt(synapse)
 
             context_block = (
-                f"## 你的角色\n{system_prompt}\n\n"
+                f"## 任务\n{message}\n\n"
                 f"---\n"
                 f"[HIVE CONTEXT]\n"
                 f"Task-ID : {task_id or '—'}\n"
                 f"Synapse : {synapse}\n"
                 f"Domain  : {domain}\n"
-                f"\n## 历史经验（来自基因库）\n{lessons_text}"
+                f"Role    : {system_prompt[:120].replace(chr(10), ' ')}\n"
+                f"\n## 历史经验\n{lessons_text}"
                 f"\n\n## 作战手册\n{playbooks_text}"
-                f"\n\n## 你的任务\n{message}"
             )
             return context_block
 
