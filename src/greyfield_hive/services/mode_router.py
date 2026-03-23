@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from loguru import logger
 
-from greyfield_hive.models.task import ExecutionMode
+from greyfield_hive.models.task import ExecutionMode, TaskState
 from greyfield_hive.services.event_bus import get_event_bus, TOPIC_TASK_DISPATCH
 
 
@@ -42,7 +42,7 @@ class ModeRouter:
             await self._route_solo(task, trace_id)
 
     async def _route_solo(self, task, trace_id: str) -> None:
-        """Solo: 派发给 assignee_synapse 或默认 code-expert"""
+        """Solo: 派发给 assignee_synapse 或默认 code-expert，执行后推进到 Consolidating"""
         synapse = task.assignee_synapse or "code-expert"
         await self._bus.publish(
             topic=TOPIC_TASK_DISPATCH,
@@ -54,9 +54,10 @@ class ModeRouter:
                 "synapse": synapse,
                 "message": task.description or task.title,
                 "domain": "general",
+                "next_state": TaskState.Consolidating.value,
             },
         )
-        logger.info(f"[ModeRouter] Solo → {synapse}")
+        logger.info(f"[ModeRouter] Solo → {synapse} → next={TaskState.Consolidating.value}")
 
     async def _route_trial(self, task_id: str, message: str,
                            meta: dict, trace_id: str) -> None:
