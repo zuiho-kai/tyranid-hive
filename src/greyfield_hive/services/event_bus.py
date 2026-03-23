@@ -23,6 +23,7 @@ TOPIC_AGENT_THOUGHTS = "agent.thoughts"
 TOPIC_AGENT_HEARTBEAT = "agent.heartbeat"
 TOPIC_AGENT_TODO_UPDATE = "agent.todo.update"
 TOPIC_TASK_DELETED   = "task.deleted"
+TOPIC_TRIAL_CLOSED   = "trial.closed"
 
 
 @dataclass
