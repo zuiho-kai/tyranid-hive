@@ -2,7 +2,7 @@ import type { Task } from '../api'
 
 const STATE_COLOR: Record<string, string> = {
   Incubating: '#6366f1', Planning: '#8b5cf6', Reviewing: '#a78bfa',
-  Spawning: '#06b6d4', Executing: '#22c55e', Consolidating: '#f59e0b',
+  Spawning: '#06b6d4', Executing: '#22c55e', Consolidating: '#f59e0b', WaitingInput: '#ef4444',
   Complete: '#475569', Dormant: '#ef4444', Cancelled: '#374151',
 }
 

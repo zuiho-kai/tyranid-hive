@@ -19,8 +19,6 @@ import ChannelSidebar from './components/ChannelSidebar'
 import DetailPanel from './components/DetailPanel'
 import TrunkChat from './components/TrunkChat'
 
-export type ChannelKey = 'trunk' | 'trial' | 'chain' | 'swarm' | 'ledger'
-
 export interface MissionDraft {
   message: string
   priority: string
@@ -37,8 +35,8 @@ const DEFAULT_DRAFT: MissionDraft = {
   trialCandidates: ['code-expert', 'research-analyst'],
   chainStages: ['code-expert', 'research-analyst'],
   swarmUnits: [
-    { synapse: 'research-analyst', message: 'Collect research inputs' },
-    { synapse: 'code-expert', message: 'Implement the main deliverable' },
+    { synapse: 'research-analyst', message: '补充资料与背景信息' },
+    { synapse: 'code-expert', message: '完成主要实现或修复' },
   ],
 }
 
@@ -49,7 +47,6 @@ export default function App() {
   const [synapses, setSynapses] = useState<Synapse[]>([])
   const [stats, setStats] = useState<TaskStats | null>(null)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
-  const [selectedChannel, setSelectedChannel] = useState<ChannelKey>('trunk')
   const [draft, setDraft] = useState<MissionDraft>(DEFAULT_DRAFT)
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(false)
@@ -114,7 +111,6 @@ export default function App() {
       const mission = await createMission(payload)
       setTasks(current => [mission.task, ...current.filter(task => task.id !== mission.task.id)])
       setSelectedTaskId(mission.task.id)
-      setSelectedChannel(channelFromMode(mission.task.exec_mode))
       setDraft(current => ({ ...current, message: '' }))
       await refreshTasks()
     } finally {
@@ -123,33 +119,29 @@ export default function App() {
   }, [draft, refreshTasks])
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#100d15] text-[#f7f1eb]">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(174,131,217,0.28),transparent_26%),radial-gradient(circle_at_bottom_right,rgba(75,170,120,0.18),transparent_22%),linear-gradient(180deg,#18131f_0%,#100d15_52%,#0b0910_100%)]" />
-      <div className="absolute inset-0 opacity-[0.16]" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px)', backgroundSize: '22px 22px' }} />
+    <div className="relative min-h-screen overflow-hidden bg-[var(--cl-bg)] text-[var(--cl-text)]">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(109,121,181,0.14),transparent_28%),radial-gradient(circle_at_top_right,rgba(79,131,169,0.10),transparent_24%),radial-gradient(circle_at_bottom_left,rgba(177,133,76,0.12),transparent_22%),linear-gradient(180deg,#fffdf9_0%,#f6f1ea_52%,#efe6da_100%)]" />
+      <div className="absolute inset-0 opacity-[0.18]" style={{ backgroundImage: 'linear-gradient(rgba(93,72,47,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(93,72,47,0.05) 1px, transparent 1px)', backgroundSize: '26px 26px' }} />
 
-      <div className="relative flex min-h-screen flex-col gap-3 p-3 md:p-4 lg:h-screen lg:flex-row lg:overflow-hidden">
+      <div className="relative flex min-h-screen flex-col gap-4 p-4 lg:h-screen lg:flex-row lg:overflow-hidden">
         <ChannelSidebar
           connected={connected}
           loading={loading}
           onSearchChange={setSearch}
-          onSelectChannel={setSelectedChannel}
           onSelectTask={setSelectedTaskId}
           search={search}
-          selectedChannel={selectedChannel}
           selectedTaskId={selectedTaskId}
           stats={stats}
           synapseCount={synapses.length}
           tasks={filteredTasks}
         />
 
-        <div className="min-h-[52vh] flex-1 overflow-hidden rounded-[30px] border border-white/10 bg-[rgba(18,14,26,0.78)] shadow-[0_28px_90px_rgba(0,0,0,0.42)] backdrop-blur-xl">
+        <div className="min-h-[54vh] flex-1 overflow-hidden rounded-[32px] border border-[var(--cl-border)] bg-[var(--cl-surface)] shadow-[0_28px_90px_rgba(122,91,62,0.12)] backdrop-blur-xl">
           <TrunkChat
             draft={draft}
             events={events}
             onDraftChange={setDraft}
-            onSelectChannel={setSelectedChannel}
             onSubmitMission={handleSubmitMission}
-            selectedChannel={selectedChannel}
             selectedTask={selectedTask}
             submitting={submitting}
             synapses={synapses}
@@ -159,7 +151,6 @@ export default function App() {
         <DetailPanel
           draft={draft}
           events={events}
-          selectedChannel={selectedChannel}
           selectedTask={selectedTask}
           synapses={synapses}
         />
@@ -197,13 +188,6 @@ function buildMissionPayload(draft: MissionDraft, title: string, description: st
 
 function deriveTitle(message: string) {
   const firstLine = message.split('\n').find(line => line.trim())?.trim() ?? message.trim()
-  if (firstLine.length <= 54) return firstLine
-  return `${firstLine.slice(0, 54).trimEnd()}…`
-}
-
-function channelFromMode(mode: string | null): ChannelKey {
-  if (mode === 'trial') return 'trial'
-  if (mode === 'chain') return 'chain'
-  if (mode === 'swarm') return 'swarm'
-  return 'trunk'
+  if (firstLine.length <= 62) return firstLine
+  return `${firstLine.slice(0, 62).trimEnd()}...`
 }

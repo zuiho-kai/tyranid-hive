@@ -131,6 +131,7 @@ _STATE_COLORS: dict[str, str] = {
     "Spawning":      "magenta",
     "Executing":     "green",
     "Consolidating": "bright_cyan",
+    "WaitingInput":  "bright_red",
     "Complete":      "bright_green",
     "Cancelled":     "red",
     "Dormant":       "dim",

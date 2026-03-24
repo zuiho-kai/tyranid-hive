@@ -292,6 +292,7 @@ export interface AnalysisResult {
   domain: string
   todos: string[]
   risks: string[]
+  blockers: string[]
   recommended_state: string
 }
 

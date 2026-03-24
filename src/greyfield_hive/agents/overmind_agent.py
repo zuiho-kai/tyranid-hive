@@ -31,6 +31,7 @@ class OvermindResult:
     summary: str
     todos: list[str]
     risks: list[str]
+    blockers: list[str]
     recommended_state: str
     domain: str
     raw_response: str = ""
@@ -123,6 +124,7 @@ _SYSTEM_TEMPLATE = """\
   "domain": "任务领域（如 coding / devops / research / planning）",
   "todos": ["子任务1", "子任务2", "子任务3"],
   "risks": ["风险点1", "风险点2"],
+  "blockers": [],
   "recommended_state": "Planning",
   "exec_mode": "solo",
   "mode_justification": "选择该模式的理由",
@@ -131,11 +133,14 @@ _SYSTEM_TEMPLATE = """\
   "swarm_units": []
 }}
 
-recommended_state 只能是以下之一：Planning / Executing / Dormant
+recommended_state 只能是以下之一：Planning / Executing / Dormant / WaitingInput
 exec_mode 只能是以下之一：solo / trial / chain / swarm
 trial_candidates：Trial 模式时填两个 synapse ID，如 ["code-expert", "research-analyst"]
 chain_stages：Chain 模式时填有序 synapse 列表，如 ["code-expert", "code-expert"]
 swarm_units：Swarm 模式时填 unit 列表，如 [{{"synapse": "code-expert", "message": "子任务描述"}}]
+如果缺少用户必须提供的关键信息，必须：
+- 在 blockers 中列出缺失项
+- 将 recommended_state 设为 WaitingInput
 """
 
 _USER_TEMPLATE = """\
@@ -214,6 +219,7 @@ class OvermindAgent:
                         summary="无法解析主脑输出",
                         todos=[],
                         risks=["LLM 输出解析失败"],
+                        blockers=[],
                         recommended_state="Dormant",
                         domain="unknown",
                         raw_response=raw,
@@ -224,6 +230,7 @@ class OvermindAgent:
                     summary=raw[:100],
                     todos=[],
                     risks=["LLM 响应格式异常"],
+                    blockers=[],
                     recommended_state="Dormant",
                     domain="unknown",
                     raw_response=raw,
@@ -234,11 +241,19 @@ class OvermindAgent:
         if exec_mode not in valid_modes:
             exec_mode = "solo"
 
+        blockers = [str(item) for item in data.get("blockers", []) if item]
+        recommended_state = str(
+            data.get("recommended_state", data.get("recommended_status", "Planning"))
+        )
+        if blockers:
+            recommended_state = "WaitingInput"
+
         return OvermindResult(
             summary=str(data.get("summary", "")),
             todos=[str(t) for t in data.get("todos", []) if t],
             risks=[str(r) for r in data.get("risks", []) if r],
-            recommended_state=str(data.get("recommended_state", "Planning")),
+            blockers=blockers,
+            recommended_state=recommended_state,
             domain=str(data.get("domain", "general")),
             raw_response=raw,
             exec_mode=exec_mode,

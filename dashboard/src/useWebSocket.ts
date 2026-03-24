@@ -9,11 +9,24 @@ export function useHiveWebSocket(onEvent?: (e: BusEvent) => void) {
   const [connected, setConnected] = useState(false)
   const [events, setEvents] = useState<BusEvent[]>([])
   const wsRef = useRef<WebSocket | null>(null)
+  const connectRef = useRef<() => void>(() => {})
   const retryRef = useRef(0)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mountedRef = useRef(true)
   const onEventRef = useRef(onEvent)
-  onEventRef.current = onEvent
+
+  useEffect(() => {
+    onEventRef.current = onEvent
+  }, [onEvent])
+
+  const scheduleReconnect = useCallback(() => {
+    if (retryRef.current >= MAX_RETRIES) return
+    const delay = Math.min(BASE_DELAY_MS * 2 ** retryRef.current, MAX_DELAY_MS)
+    retryRef.current += 1
+    timerRef.current = setTimeout(() => {
+      if (mountedRef.current) connectRef.current()
+    }, delay)
+  }, [])
 
   const connect = useCallback(() => {
     if (!mountedRef.current) return
@@ -50,15 +63,10 @@ export function useHiveWebSocket(onEvent?: (e: BusEvent) => void) {
         onEventRef.current?.(e)
       } catch { /* ignore parse errors */ }
     }
-  }, [])
+  }, [scheduleReconnect])
 
-  const scheduleReconnect = useCallback(() => {
-    if (retryRef.current >= MAX_RETRIES) return
-    const delay = Math.min(BASE_DELAY_MS * 2 ** retryRef.current, MAX_DELAY_MS)
-    retryRef.current += 1
-    timerRef.current = setTimeout(() => {
-      if (mountedRef.current) connect()
-    }, delay)
+  useEffect(() => {
+    connectRef.current = connect
   }, [connect])
 
   useEffect(() => {

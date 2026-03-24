@@ -3,18 +3,19 @@ import type { Task, BusEvent, AnalysisResult, TrialResult, ChainResult, SwarmRes
 import { fetchEvents, patchTask, deleteTask, appendTodo, toggleTodo, analyzeTask, trialTask, chainTask, swarmTask, fetchTaskChildren, fetchTaskBlocked } from '../api'
 
 const NEXT_STATES: Record<string, string[]> = {
-  Incubating: ['Planning', 'Cancelled'],
-  Planning: ['Reviewing', 'Dormant', 'Cancelled'],
-  Reviewing: ['Spawning', 'Planning', 'Cancelled'],
-  Spawning: ['Executing', 'Dormant', 'Cancelled'],
-  Executing: ['Consolidating', 'Complete', 'Dormant', 'Cancelled'],
+  Incubating: ['Planning', 'WaitingInput', 'Cancelled'],
+  Planning: ['Reviewing', 'WaitingInput', 'Dormant', 'Cancelled'],
+  Reviewing: ['Spawning', 'Planning', 'WaitingInput', 'Cancelled'],
+  Spawning: ['Executing', 'WaitingInput', 'Dormant', 'Cancelled'],
+  Executing: ['Consolidating', 'Complete', 'WaitingInput', 'Dormant', 'Cancelled'],
   Consolidating: ['Complete', 'Executing', 'Cancelled'],
-  Dormant: ['Planning', 'Executing'],
+  WaitingInput: ['Planning', 'Executing', 'Cancelled'],
+  Dormant: ['Planning', 'Executing', 'WaitingInput'],
 }
 
 const STATE_COLOR: Record<string, string> = {
   Incubating: '#6366f1', Planning: '#8b5cf6', Reviewing: '#a78bfa',
-  Spawning: '#06b6d4', Executing: '#22c55e', Consolidating: '#f59e0b',
+  Spawning: '#06b6d4', Executing: '#22c55e', Consolidating: '#f59e0b', WaitingInput: '#ef4444',
   Complete: '#475569', Dormant: '#ef4444', Cancelled: '#374151',
 }
 

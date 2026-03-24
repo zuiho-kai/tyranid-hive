@@ -31,6 +31,19 @@ from greyfield_hive.db import SessionLocal
 from greyfield_hive.services.task_service import TaskService, TaskNotFoundError
 
 
+def _build_task_message(task, stage: str) -> str:
+    title = (task.title or "").strip()
+    description = (task.description or "").strip()
+    if description and description != title:
+        return f"Stage: {stage}\nTitle: {title}\nDescription: {description}"
+    return f"Stage: {stage}\nTask: {description or title}"
+
+
+def _fallback_message(title: str, stage: str) -> str:
+    clean = (title or "").strip() or "Untitled task"
+    return f"Stage: {stage}\nTask: {clean}"
+
+
 class OrchestratorWorker:
     """编排器 —— 无状态事件路由机"""
 
@@ -103,15 +116,17 @@ class OrchestratorWorker:
         if not task_id:
             return
 
+        task = None
         try:
             async with SessionLocal() as db:
                 task = await TaskService(db).get_by_id(task_id)
                 mode_source = (task.meta or {}).get("mode_source")
-                if mode_source == "user":
-                    logger.info(f"[Orchestrator] 新任务 {task_id} 已显式指定模式，跳过主脑")
-                    return
         except TaskNotFoundError:
-            pass
+            mode_source = None
+
+        if mode_source == "user":
+            logger.info(f"[Orchestrator] 新任务 {task_id} 已显式指定模式，跳过主脑")
+            return
 
         logger.info(f"[Orchestrator] 新任务 {task_id} → 派发给主脑")
         await self.bus.publish(
@@ -122,7 +137,7 @@ class OrchestratorWorker:
             payload={
                 "task_id": task_id,
                 "synapse": "overmind",
-                "message": f"新战团孵化：{event.payload.get('title', '')}",
+                "message": _build_task_message(task, "Incubating") if task else _fallback_message(event.payload.get("title", ""), "Incubating"),
                 "next_state": TaskState.Planning.value,
             },
         )
@@ -141,19 +156,20 @@ class OrchestratorWorker:
             return
 
         # 特定状态需要主动派发
+        task = None
         try:
             async with SessionLocal() as db:
                 task = await TaskService(db).get_by_id(task_id)
                 mode_source = (task.meta or {}).get("mode_source")
-
-            if (
-                mode_source == "user"
-                and new_state in {TaskState.Planning, TaskState.Reviewing}
-            ):
-                logger.info(f"[Orchestrator] {task_id}: {new_state_str} 为显式模式流程，跳过主脑")
-                return
         except TaskNotFoundError:
-            pass
+            mode_source = None
+
+        if (
+            mode_source == "user"
+            and new_state in {TaskState.Planning, TaskState.Reviewing}
+        ):
+            logger.info(f"[Orchestrator] {task_id}: {new_state_str} 为显式模式流程，跳过主脑")
+            return
 
         synapse = STATE_SYNAPSE_MAP.get(new_state)
         if synapse is None:
@@ -171,7 +187,7 @@ class OrchestratorWorker:
             payload={
                 "task_id": task_id,
                 "synapse": synapse,
-                "message": f"任务流转至 {new_state_str}，请处理",
+                "message": _build_task_message(task, new_state_str) if task else _fallback_message(task_id, new_state_str),
                 "next_state": _STATE_NEXT.get(new_state, new_state).value,
             },
         )

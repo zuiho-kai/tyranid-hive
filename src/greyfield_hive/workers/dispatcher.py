@@ -11,7 +11,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+import re
 
 from loguru import logger
 
@@ -113,6 +115,72 @@ def _infer_success(result: dict) -> bool:
     return not any(kw in stdout for kw in failure_keywords)
 
 
+def _extract_json_payload(raw: str) -> dict | None:
+    text = re.sub(r"^```(?:json)?\s*", "", raw.strip(), flags=re.MULTILINE)
+    text = re.sub(r"\s*```$", "", text, flags=re.MULTILINE)
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if not match:
+        return None
+    try:
+        return json.loads(match.group())
+    except json.JSONDecodeError:
+        return None
+
+
+def _normalize_overmind_state(data: dict, fallback: str) -> str:
+    blockers = [str(item).strip() for item in data.get("blockers", []) if str(item).strip()]
+    if blockers:
+        return TaskState.WaitingInput.value
+
+    raw_state = str(
+        data.get("recommended_state", data.get("recommended_status", fallback or TaskState.Planning.value))
+    ).strip()
+    state_map = {
+        "planning": TaskState.Planning.value,
+        "reviewing": TaskState.Reviewing.value,
+        "spawning": TaskState.Spawning.value,
+        "executing": TaskState.Spawning.value,
+        "waitinginput": TaskState.WaitingInput.value,
+        "waiting_input": TaskState.WaitingInput.value,
+        "dormant": TaskState.Dormant.value,
+        "complete": TaskState.Complete.value,
+    }
+    return state_map.get(raw_state.lower(), fallback or TaskState.Planning.value)
+
+
+def _extract_waiting_input_blockers(raw: str) -> list[str]:
+    hints = (
+        "缺少",
+        "缺失",
+        "请补充",
+        "需要补充",
+        "请提供",
+        "请确认",
+        "无法进入有效拆解",
+        "任务定义缺失",
+        "关键信息",
+        "未指定",
+    )
+    blockers: list[str] = []
+    for line in raw.splitlines():
+        clean = re.sub(r"^[\-\*\d\.\s`#>]+", "", line).strip()
+        if not clean:
+            continue
+        if any(hint in clean for hint in hints):
+            blockers.append(clean[:160])
+
+    unique_blockers: list[str] = []
+    for blocker in blockers:
+        if blocker not in unique_blockers:
+            unique_blockers.append(blocker)
+
+    if unique_blockers:
+        return unique_blockers[:5]
+    if any(hint in raw for hint in hints):
+        return ["需要用户补充关键信息"]
+    return []
+
+
 class DispatchWorker:
     """派发器 —— 将任务分配给对应的小主脑（OpenClaw agent）"""
 
@@ -208,9 +276,9 @@ class DispatchWorker:
             if task_id:
                 await self._persist_progress(task_id, synapse, result)
 
-            # 主脑输出：提取 exec_mode 并保存到任务
+            # 主脑输出：提取分析结果并覆盖下一状态
             if synapse == "overmind" and task_id:
-                await self._save_exec_mode(task_id, result)
+                next_state = await self._save_overmind_analysis(task_id, result, next_state)
 
             # 自动写入经验教训
             await self._write_outcome_lesson(
@@ -234,14 +302,18 @@ class DispatchWorker:
             tags = [w for w in message.split() if 3 <= len(w) <= 10][:8]
             await self._update_playbook_stats(domain=domain, tags=tags, success=success)
 
-            # 推进状态机：更新 DB 状态并触发 Orchestrator 路由
-            if next_state and task_id:
+            # 推进状态机：失败时进入 Dormant，成功时进入目标状态
+            target_state = next_state
+            if task_id and result.get("returncode", -1) != 0:
+                target_state = TaskState.Dormant.value
+
+            if target_state and task_id:
                 try:
-                    new_ts = TaskState(next_state)
+                    new_ts = TaskState(target_state)
                     async with SessionLocal() as db:
                         svc = TaskService(db)
                         await svc.transition(task_id, new_ts, agent="dispatcher")
-                    logger.info(f"[Dispatcher] 状态推进 {task_id} → {next_state}")
+                    logger.info(f"[Dispatcher] 状态推进 {task_id} → {target_state}")
                 except InvalidTransitionError as e:
                     logger.warning(f"[Dispatcher] 非法状态跳转，跳过: {e}")
                 except Exception as e:
@@ -253,8 +325,12 @@ class DispatchWorker:
                 producer=f"synapse.{synapse}",
                 event_type=(
                     "task.analysis.completed"
-                    if synapse == "overmind"
-                    else ("task.stage.completed" if result.get("returncode", -1) == 0 else "task.stage.failed")
+                    if synapse == "overmind" and result.get("returncode", -1) == 0
+                    else (
+                        "task.analysis.failed"
+                        if synapse == "overmind"
+                        else ("task.stage.completed" if result.get("returncode", -1) == 0 else "task.stage.failed")
+                    )
                 ),
                 task_id=task_id,
                 stage=synapse,
@@ -439,50 +515,81 @@ class DispatchWorker:
         except Exception as e:
             logger.warning(f"[Dispatcher] 进度回写失败 {task_id}: {e}")
 
-    # ── exec_mode 提取 ───────────────────────────────────
+    # ── 主脑分析结果提取 ───────────────────────────────────
 
-    async def _save_exec_mode(self, task_id: str, result: dict) -> None:
-        """从主脑 stdout 提取 exec_mode 并保存到任务 meta"""
-        import json
-        import re
+    async def _save_overmind_analysis(
+        self,
+        task_id: str,
+        result: dict,
+        fallback_next_state: str,
+    ) -> str:
+        """从主脑 stdout 提取分析结果，并返回有效的下一状态。"""
         stdout = result.get("stdout", "")
         try:
-            text = re.sub(r"^```(?:json)?\s*", "", stdout.strip(), flags=re.MULTILINE)
-            text = re.sub(r"\s*```$", "", text, flags=re.MULTILINE)
-            m = re.search(r"\{.*\}", text, re.DOTALL)
-            if not m:
-                return
-            data = json.loads(m.group())
+            data = _extract_json_payload(stdout)
+            if not data:
+                blockers = _extract_waiting_input_blockers(stdout)
+                if not blockers:
+                    return fallback_next_state
+                data = {
+                    "summary": stdout[:300],
+                    "domain": "general",
+                    "risks": [],
+                    "blockers": blockers,
+                    "recommended_state": TaskState.WaitingInput.value,
+                    "exec_mode": "solo",
+                }
+
+            blockers = [str(item).strip() for item in data.get("blockers", []) if str(item).strip()]
+            risks = [str(item).strip() for item in data.get("risks", []) if str(item).strip()]
+            effective_next_state = _normalize_overmind_state(data, fallback_next_state)
+
             async with SessionLocal() as db:
                 from greyfield_hive.services.task_service import TaskService
                 svc = TaskService(db)
                 task = await svc.get_by_id(task_id)
                 meta = dict(task.meta or {})
-                if task.exec_mode and meta.get("mode_source") == "user":
-                    logger.info(f"[Dispatcher] {task_id} 已由用户指定 exec_mode={task.exec_mode.value}，跳过主脑覆盖")
-                    return
-                exec_mode = str(data.get("exec_mode", "solo")).lower()
-                if exec_mode not in {"solo", "trial", "chain", "swarm"}:
-                    exec_mode = "solo"
-                task = await svc.update_exec_mode(task_id, exec_mode)
-                meta = dict(task.meta or {})
+
+                mode_selected = False
+                exec_mode = task.exec_mode.value if task.exec_mode else "solo"
+                if not (task.exec_mode and meta.get("mode_source") == "user"):
+                    exec_mode = str(data.get("exec_mode", "solo")).lower()
+                    if exec_mode not in {"solo", "trial", "chain", "swarm"}:
+                        exec_mode = "solo"
+                    task = await svc.update_exec_mode(task_id, exec_mode)
+                    meta = dict(task.meta or {})
+                    mode_selected = True
+
+                meta["analysis_summary"] = str(data.get("summary", ""))
+                meta["analysis_domain"] = str(data.get("domain", "general"))
+                meta["analysis_risks"] = risks
+                meta["analysis_blockers"] = blockers
+                meta["awaiting_user_input"] = bool(blockers)
+                meta["recommended_state"] = effective_next_state
                 for key in ("trial_candidates", "chain_stages", "swarm_units"):
                     if key in data:
                         meta[key] = data[key]
                 task.meta = meta
                 await db.commit()
-                logger.info(f"[Dispatcher] exec_mode={exec_mode} 已保存 → {task_id}")
-                await publish_stage_event(
-                    self.bus,
-                    trace_id=task.trace_id,
-                    producer="dispatcher",
-                    event_type="task.mode.selected",
-                    task_id=task_id,
-                    stage="routing",
-                    payload={"mode": exec_mode, "source": "overmind"},
+
+                logger.info(
+                    f"[Dispatcher] overmind analysis saved task={task_id} "
+                    f"next={effective_next_state} blockers={len(blockers)} mode={exec_mode}"
                 )
+                if mode_selected:
+                    await publish_stage_event(
+                        self.bus,
+                        trace_id=task.trace_id,
+                        producer="dispatcher",
+                        event_type="task.mode.selected",
+                        task_id=task_id,
+                        stage="routing",
+                        payload={"mode": exec_mode, "source": "overmind"},
+                    )
+                return effective_next_state
         except Exception as e:
-            logger.warning(f"[Dispatcher] exec_mode 提取失败 {task_id}: {e}")
+            logger.warning(f"[Dispatcher] overmind analysis parse failed {task_id}: {e}")
+        return fallback_next_state
 
     # ── 调用 OpenClaw ────────────────────────────────────
 

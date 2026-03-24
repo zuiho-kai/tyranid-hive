@@ -6,7 +6,7 @@ import type { OverviewStats, TimelineData, EvolutionStatus } from '../api'
 
 const STATE_COLOR: Record<string, string> = {
   Incubating: '#7c3aed', Planning: '#2563eb', Executing: '#0891b2',
-  Reviewing: '#d97706', Consolidating: '#059669', Complete: '#16a34a',
+  Reviewing: '#d97706', Consolidating: '#059669', WaitingInput: '#dc2626', Complete: '#16a34a',
   Dormant: '#475569', Cancelled: '#dc2626',
 }
 

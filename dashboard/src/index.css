@@ -6,82 +6,101 @@
 
 :root {
   /* 基础色 */
-  --color-base-white: #fdf8f3;
-  --color-base-black: #1e1e24;
+  --color-base-white: #fffaf4;
+  --color-base-black: #201d1a;
 
   /* Opus (紫色系) */
-  --color-opus-primary: #9b7ebd;
-  --color-opus-light: #d4c1ec;
-  --color-opus-dark: #6d5a8c;
-  --color-opus-bg: #f3eaf8;
+  --color-opus-primary: #6d79b5;
+  --color-opus-light: #b9c1e5;
+  --color-opus-dark: #4c557f;
+  --color-opus-bg: #eef1fb;
 
   /* Codex (绿色系) */
-  --color-codex-primary: #5b8c5a;
-  --color-codex-light: #8fb98e;
-  --color-codex-dark: #3a5f39;
-  --color-codex-bg: #eaf6ea;
+  --color-codex-primary: #5d7c57;
+  --color-codex-light: #9db597;
+  --color-codex-dark: #445c41;
+  --color-codex-bg: #edf5ec;
 
   /* Gemini (蓝色系) */
-  --color-gemini-primary: #5b9bd5;
-  --color-gemini-light: #9cc0e7;
-  --color-gemini-dark: #3a6fa5;
-  --color-gemini-bg: #eaf4fb;
+  --color-gemini-primary: #4f83a9;
+  --color-gemini-light: #9fbfd7;
+  --color-gemini-dark: #355d79;
+  --color-gemini-bg: #ecf4f8;
 
   /* DARE (琥珀色系) */
-  --color-dare-primary: #d4a76a;
-  --color-dare-light: #e8c99b;
-  --color-dare-dark: #8b6f47;
-  --color-dare-bg: #fbf5ec;
+  --color-dare-primary: #b1854c;
+  --color-dare-light: #d9bb93;
+  --color-dare-dark: #7a5a33;
+  --color-dare-bg: #f8f1e6;
 
   /* Co-Creator (咖啡色系) */
-  --color-cocreator-primary: #e29578;
-  --color-cocreator-light: #ffddd2;
-  --color-cocreator-dark: #815b5b;
-  --color-cocreator-bg: #fff5f2;
+  --color-cocreator-primary: #b96255;
+  --color-cocreator-light: #e8beb8;
+  --color-cocreator-dark: #7d4a42;
+  --color-cocreator-bg: #fbf0ee;
 
   /* UI Tokens */
-  --bg-app: var(--color-base-white);
+  --bg-app: #f4efe7;
   --text-primary: var(--color-base-black);
-  --text-secondary: #666666;
+  --text-secondary: #655b53;
   --border-radius-base: 16px;
   --spacing-unit: 8px;
 
   /* ── Werewolf-Cute 暗色主题（默认激活）── */
 
   /* 背景 */
-  --ww-bg-base: #f7f1eb;
-  --ww-bg-card: #fff8f1;
+  --ww-bg-base: #f4efe7;
+  --ww-bg-card: #fffaf4;
   --ww-bg-surface: #fffdf9;
-  --ww-bg-topbar: rgba(255, 248, 241, 0.92);
+  --ww-bg-topbar: rgba(255, 250, 244, 0.92);
 
   /* 文字 */
-  --ww-text-main: #1e1e24;
-  --ww-text-muted: #6d625a;
-  --ww-text-dim: #9b8d80;
+  --ww-text-main: #201d1a;
+  --ww-text-muted: #655b53;
+  --ww-text-dim: #8d7f72;
 
   /* 强调色 */
-  --ww-accent-danger: #d45a6a;
-  --ww-accent-cute: #e29578;
-  --ww-accent-success: #5b8c5a;
-  --ww-accent-info: #5b9bd5;
+  --ww-accent-danger: #b96255;
+  --ww-accent-cute: #b1854c;
+  --ww-accent-success: #5d7c57;
+  --ww-accent-info: #4f83a9;
 
   /* 状态指示 */
   --ww-state-alive: var(--ww-accent-cute);
-  --ww-state-dead: #475569;
+  --ww-state-dead: #6e747b;
   --ww-state-speaking: var(--ww-accent-info);
   --ww-state-active: var(--ww-accent-cute);
 
   /* 半透明变体 */
-  --ww-danger-soft: rgba(212, 90, 106, 0.1);
-  --ww-info-soft: rgba(91, 155, 213, 0.14);
-  --ww-subtle-soft: rgba(155, 126, 189, 0.08);
-  --ww-cute-soft: rgba(226, 149, 120, 0.14);
-  --ww-base-overlay: rgba(253, 248, 243, 0.92);
+  --ww-danger-soft: rgba(185, 98, 85, 0.12);
+  --ww-info-soft: rgba(79, 131, 169, 0.12);
+  --ww-subtle-soft: rgba(109, 121, 181, 0.1);
+  --ww-cute-soft: rgba(177, 133, 76, 0.12);
+  --ww-base-overlay: rgba(255, 250, 244, 0.92);
 
   /* 边框与阴影 */
-  --ww-border-subtle: rgba(129, 91, 91, 0.12);
-  --ww-border-active: rgba(155, 126, 189, 0.4);
-  --ww-shadow-glow: rgba(155, 126, 189, 0.2);
+  --ww-border-subtle: rgba(93, 72, 47, 0.14);
+  --ww-border-active: rgba(109, 121, 181, 0.34);
+  --ww-shadow-glow: rgba(109, 121, 181, 0.16);
+
+  --cl-bg: #f4efe7;
+  --cl-surface: rgba(255, 251, 245, 0.84);
+  --cl-panel: rgba(255, 248, 240, 0.9);
+  --cl-panel-strong: rgba(255, 250, 244, 0.96);
+  --cl-border: rgba(93, 72, 47, 0.14);
+  --cl-text: #201d1a;
+  --cl-muted: #655b53;
+  --cl-dim: #8d7f72;
+  --cl-primary: #6d79b5;
+  --cl-primary-soft: rgba(109, 121, 181, 0.12);
+  --cl-success: #5d7c57;
+  --cl-success-soft: rgba(93, 124, 87, 0.1);
+  --cl-info: #4f83a9;
+  --cl-info-soft: rgba(79, 131, 169, 0.1);
+  --cl-warning: #b1854c;
+  --cl-warning-soft: rgba(177, 133, 76, 0.12);
+  --cl-danger: #b96255;
+  --cl-danger-soft: rgba(185, 98, 85, 0.12);
 }
 
 /* ── Base Layer ──────────────────────────────────────────── */
@@ -92,10 +111,11 @@
   body {
     @apply m-0 p-0 font-sans antialiased;
     background:
-      radial-gradient(circle at top left, rgba(155, 126, 189, 0.18), transparent 30%),
-      radial-gradient(circle at bottom right, rgba(226, 149, 120, 0.16), transparent 28%),
-      linear-gradient(180deg, #fffdfa 0%, #f7f1eb 100%);
-    color: var(--ww-text-main);
+      radial-gradient(circle at top left, rgba(109, 121, 181, 0.14), transparent 30%),
+      radial-gradient(circle at top right, rgba(79, 131, 169, 0.1), transparent 26%),
+      radial-gradient(circle at bottom left, rgba(177, 133, 76, 0.1), transparent 24%),
+      linear-gradient(180deg, #fffdf9 0%, #f4efe7 100%);
+    color: var(--cl-text);
     color-scheme: light;
   }
 
@@ -114,14 +134,14 @@
 /* ── Selection ──────────────────────────────────────────── */
 
 ::selection {
-  background: rgba(155, 126, 189, 0.3);
-  color: var(--ww-text-main);
+  background: rgba(109, 121, 181, 0.24);
+  color: var(--cl-text);
 }
 
 /* ── Focus ring ─────────────────────────────────────────── */
 
 :focus-visible {
-  outline: 1.5px solid var(--ww-accent-cute);
+  outline: 1.5px solid var(--cl-primary);
   outline-offset: 1px;
 }
 
@@ -129,7 +149,7 @@
 
 @layer utilities {
   .text-gradient-cute {
-    background: linear-gradient(135deg, var(--ww-accent-cute), var(--ww-accent-danger));
+    background: linear-gradient(135deg, var(--cl-warning), var(--cl-primary));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
   }
@@ -139,6 +159,6 @@
   }
 
   .glow-opus {
-    box-shadow: 0 0 12px rgba(155, 126, 189, 0.3);
+    box-shadow: 0 0 12px rgba(109, 121, 181, 0.22);
   }
 }
