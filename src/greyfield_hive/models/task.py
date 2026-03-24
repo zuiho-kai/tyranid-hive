@@ -27,8 +27,8 @@ class TaskState(str, enum.Enum):
 TERMINAL_STATES = {TaskState.Complete, TaskState.Cancelled}
 
 STATE_TRANSITIONS: dict[TaskState, set[TaskState]] = {
-    TaskState.Incubating:    {TaskState.Planning, TaskState.WaitingInput, TaskState.Dormant, TaskState.Cancelled},
-    TaskState.Planning:      {TaskState.Reviewing, TaskState.WaitingInput, TaskState.Dormant, TaskState.Cancelled},
+    TaskState.Incubating:    {TaskState.Planning, TaskState.Spawning, TaskState.WaitingInput, TaskState.Dormant, TaskState.Cancelled},
+    TaskState.Planning:      {TaskState.Reviewing, TaskState.Spawning, TaskState.WaitingInput, TaskState.Dormant, TaskState.Cancelled},
     TaskState.Reviewing:     {TaskState.Spawning, TaskState.Planning, TaskState.WaitingInput, TaskState.Cancelled},
     TaskState.Spawning:      {TaskState.Executing, TaskState.WaitingInput, TaskState.Dormant, TaskState.Cancelled},
     TaskState.Executing:     {TaskState.Consolidating, TaskState.Complete, TaskState.WaitingInput, TaskState.Dormant, TaskState.Cancelled},

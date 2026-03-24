@@ -374,18 +374,26 @@ class DispatchWorker:
 
             # 从 L2 基因文件加载 Synapse 角色系统提示词
             gene_loader = get_gene_loader()
-            system_prompt = gene_loader.get_system_prompt(synapse)
+            system_prompt = gene_loader.get_system_prompt(synapse).strip()
+            if synapse == "overmind":
+                system_prompt = (
+                    f"{system_prompt}\n\n"
+                    "硬性要求：你当前处于任务分析阶段，不是执行阶段。\n"
+                    "不要直接回答用户问题，不要直接产出最终成品，不要进入实现细节。\n"
+                    "你的唯一输出必须是一个 JSON 对象，且不能带 Markdown、代码块或额外解释。\n"
+                    "JSON 至少包含这些字段：summary, domain, todos, risks, blockers, recommended_state, exec_mode。\n"
+                    "如果信息缺失，blockers 填缺失项，recommended_state 必须为 WaitingInput。\n"
+                    "如果任务已经足够明确且适合直接执行，recommended_state 设为 Spawning，exec_mode 默认用 solo。"
+                )
 
-            # 注意：不能使用 Markdown 标题（## 任务）作为前缀
-            # GPT-5.4 会把 "## 任务\n..." 当成模板框架而非要执行的指令
             context_block = (
-                f"{message}\n\n"
+                f"[SYSTEM]\n{system_prompt}\n\n"
+                f"[TASK]\n{message}\n\n"
                 f"---\n"
                 f"[HIVE CONTEXT]\n"
                 f"Task-ID : {task_id or '—'}\n"
                 f"Synapse : {synapse}\n"
                 f"Domain  : {domain}\n"
-                f"Role    : {system_prompt[:120].replace(chr(10), ' ')}\n"
             )
             # Keep stable section headers/placeholders so tests and operators
             # can rely on a predictable enriched prompt shape.
