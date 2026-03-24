@@ -9,6 +9,7 @@ from greyfield_hive.db import engine, Base
 from greyfield_hive.services.swarm_runner import SwarmRunnerService, SwarmUnit, SwarmResult
 from greyfield_hive.adapters.openclaw import MockAdapter
 from greyfield_hive.workers.dispatcher import DispatchWorker
+from unittest.mock import AsyncMock, patch
 
 
 @pytest.fixture(autouse=True)
@@ -88,7 +89,7 @@ async def test_swarm_partial_failure():
     class PartialFailAdapter:
         async def invoke(self, synapse, message, env, timeout):
             nonlocal fail_count
-            if "fail" in message.lower():
+            if "__force_fail__" in message.lower():
                 fail_count += 1
                 return {"returncode": 1, "stdout": "", "stderr": "error"}
             return {"returncode": 0, "stdout": f"[mock] {synapse}: {message[:30]}", "stderr": ""}
@@ -98,7 +99,7 @@ async def test_swarm_partial_failure():
 
     units = [
         SwarmUnit(synapse="code-expert", message="成功任务"),
-        SwarmUnit(synapse="code-expert", message="fail 任务"),
+        SwarmUnit(synapse="code-expert", message="__FORCE_FAIL__ 任务"),
         SwarmUnit(synapse="code-expert", message="成功任务2"),
     ]
     result = await svc.run(task_id="T-PARTIAL", units=units)
@@ -141,6 +142,23 @@ async def test_swarm_elapsed_sec_recorded():
     units = [SwarmUnit(synapse="code-expert", message="计时测试")]
     result = await svc.run(task_id="T-ELAPSED", units=units)
     assert result.results[0].elapsed_sec >= 0
+
+
+@pytest.mark.asyncio
+async def test_swarm_persists_progress_to_task_id():
+    """progress_log 回写必须使用 task_id，而不是 synapse"""
+    svc = SwarmRunnerService()
+    svc._worker._adapter = MockAdapter()
+    persist = AsyncMock()
+
+    with patch.object(svc._worker, "_persist_progress", persist):
+        await svc.run(
+            task_id="T-PERSIST",
+            units=[SwarmUnit(synapse="code-expert", message="记录进度")],
+        )
+
+    persist.assert_awaited_once()
+    assert persist.await_args.args[0] == "T-PERSIST"
 
 
 @pytest.mark.asyncio

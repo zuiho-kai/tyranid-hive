@@ -579,12 +579,75 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/tyranid-hive/master/insta
 ### 2. 启动服务
 
 ```bash
+# 直接调用 Codex 作为执行层
+# PowerShell:
+$env:HIVE_ADAPTER="codex"
 python start.py          # 默认 http://localhost:8765
-# 或
+
+# 或 Docker
 docker-compose up        # Docker 一键启动
 ```
 
-### 3. 创建任务并触发赛马
+### 3. 先验证 Codex CLI 可用
+
+```bash
+python test_codex_env.py
+```
+
+看到 `hello from codex` 即表示网页端后续会直接调用真实 Codex，而不是 mock。
+
+### 4. 用网页端直接下达任务（推荐）
+
+启动后打开：
+
+- `http://localhost:8765/`
+- `http://localhost:8765/dashboard`
+
+新的网页控制台是 chat-first 形态，参考 `clowder-ai`：
+
+- 左侧：频道和任务轨道
+- 中间：直接输入任务并选择 `Auto / Solo / Trial / Chain / Swarm`
+- 右侧：当前任务的 `mode / state / stage / progress / latest event`
+
+网页提任务时会直接调用 `/api/missions`，并把显式模式配置一起下发给后端：
+
+- `Solo`：单执行者直接跑
+- `Trial`：双路赛马
+- `Chain`：串行阶段执行
+- `Swarm`：并行 unit 执行
+
+任务提交后，界面里可以实时看到：
+
+- 当前运行到哪个 stage
+- 当前 state / mode
+- 中间 transcript 中的过程消息
+- Inspector 中的结构化事件和 mode config
+
+### 当前进度（2026-03-24）
+
+- clowder 风格网页控制台已经替换原来的后台式任务入口
+- 网页端现在直接调用真实 Codex，不走 mock
+- `solo / trial / chain / swarm` 都可以从网页端显式触发
+- 前端已经补齐任务过程细节，可看到 `mode / state / stage / progress / latest event`
+- 新的 `/api/missions` 入口已接到执行链，并针对网页任务默认跳过冗长的 consolidation 收口
+- 已有真实浏览器 E2E：`python test_e2e.py`
+- 已有真实 Codex 烟测：`python test_codex_env.py`
+
+### 界面截图
+
+首页 Mission Console：
+
+![Mission Console](docs/screenshots/mission-console-overview.png)
+
+任务运行中（可见 stage、transcript、inspector）：
+
+![Live Mission](docs/screenshots/solo-mission-live.png)
+
+Swarm 模式配置：
+
+![Swarm Composer](docs/screenshots/swarm-composer.png)
+
+### 5. API / CLI 方式（高级用法）
 
 ```bash
 # CLI 方式
@@ -602,7 +665,15 @@ curl -X POST http://localhost:8765/api/tasks/<id>/trial \
   -d '{"synapses": ["code-expert", "research-analyst"], "domain": "coding"}'
 ```
 
-### 4. 主脑智能分析（需要 ANTHROPIC_API_KEY）
+如果你想直接用新的网页任务入口，也可以直接调用：
+
+```bash
+curl -X POST http://localhost:8765/api/missions \
+  -H "Content-Type: application/json" \
+  -d '{"title":"网页 demo 任务","description":"Reply with exactly WEB_DEMO_OK","mode":"solo","priority":"high"}'
+```
+
+### 6. 主脑智能分析（需要 ANTHROPIC_API_KEY）
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
@@ -612,9 +683,23 @@ hive tasks analyze <task_id>
 
 主脑会自动拆解子任务、识别风险、推荐状态，并注入历史经验上下文。
 
-### 5. 打开 Dashboard
+### 7. 打开 Dashboard
 
-访问 http://localhost:8765/dashboard — 实时查看任务状态、事件流、基因库统计。
+访问 `http://localhost:8765/` 或 `http://localhost:8765/dashboard` — 实时查看任务状态、事件流、基因库统计。
+
+### 8. 跑完整网页 demo 验证
+
+```bash
+python test_e2e.py
+```
+
+这会自动：
+
+- 启动本地服务
+- 打开浏览器
+- 从网页端依次提交 `solo / trial / chain / swarm`
+- 直接调用真实 Codex
+- 验证每种模式都能在页面上看到任务进入、阶段推进和过程消息
 
 > 详细上手指南：[docs/getting-started.md](docs/getting-started.md)
 

@@ -21,9 +21,11 @@ from greyfield_hive.services.event_bus import (
     BusEvent,
     TOPIC_TASK_DISPATCH,
     TOPIC_TASK_STATUS,
+    TOPIC_TASK_STAGE,
     TOPIC_AGENT_THOUGHTS,
     TOPIC_AGENT_HEARTBEAT,
 )
+from greyfield_hive.services.execution_events import publish_stage_event
 from greyfield_hive.adapters.openclaw import get_adapter, OpenClawAdapter
 from greyfield_hive.models.task import TaskState
 from greyfield_hive.services.task_service import TaskService, InvalidTransitionError
@@ -173,6 +175,16 @@ class DispatchWorker:
             )
 
             logger.info(f"[Dispatcher] 派发 {task_id} → {synapse}: {message[:60]}")
+            stage_kind = "analysis" if synapse == "overmind" else "execution"
+            await publish_stage_event(
+                self.bus,
+                trace_id=trace_id,
+                producer=f"synapse.{synapse}",
+                event_type=f"task.{stage_kind}.started" if synapse == "overmind" else "task.stage.started",
+                task_id=task_id,
+                stage=synapse,
+                payload={"synapse": synapse, "message": message[:200]},
+            )
             result = await self._invoke_agent(synapse, enriched_message, task_id, trace_id)
 
             await self.bus.publish(
@@ -235,6 +247,24 @@ class DispatchWorker:
                 except Exception as e:
                     logger.error(f"[Dispatcher] 状态推进失败 {task_id}: {e}")
 
+            await publish_stage_event(
+                self.bus,
+                trace_id=trace_id,
+                producer=f"synapse.{synapse}",
+                event_type=(
+                    "task.analysis.completed"
+                    if synapse == "overmind"
+                    else ("task.stage.completed" if result.get("returncode", -1) == 0 else "task.stage.failed")
+                ),
+                task_id=task_id,
+                stage=synapse,
+                payload={
+                    "synapse": synapse,
+                    "returncode": result.get("returncode", -1),
+                    "success": _infer_success(result),
+                },
+            )
+
     # ── 基因上下文注入 ────────────────────────────────────
 
     async def _build_enriched_message(
@@ -281,10 +311,11 @@ class DispatchWorker:
                 f"Domain  : {domain}\n"
                 f"Role    : {system_prompt[:120].replace(chr(10), ' ')}\n"
             )
-            # 只在有实际内容时追加历史经验和作战手册
-            if lessons_text and lessons_text != "（暂无相关经验）":
-                context_block += f"\n参考经验:\n{lessons_text}"
-            if playbooks_text and playbooks_text != "（暂无相关手册）":
+            # Keep stable section headers/placeholders so tests and operators
+            # can rely on a predictable enriched prompt shape.
+            if lessons_text:
+                context_block += f"\n历史经验:\n{lessons_text}"
+            if playbooks_text:
                 context_block += f"\n作战手册:\n{playbooks_text}"
             return context_block
 
@@ -422,12 +453,17 @@ class DispatchWorker:
             if not m:
                 return
             data = json.loads(m.group())
-            exec_mode = str(data.get("exec_mode", "solo")).lower()
-            if exec_mode not in {"solo", "trial", "chain", "swarm"}:
-                exec_mode = "solo"
             async with SessionLocal() as db:
                 from greyfield_hive.services.task_service import TaskService
                 svc = TaskService(db)
+                task = await svc.get_by_id(task_id)
+                meta = dict(task.meta or {})
+                if task.exec_mode and meta.get("mode_source") == "user":
+                    logger.info(f"[Dispatcher] {task_id} 已由用户指定 exec_mode={task.exec_mode.value}，跳过主脑覆盖")
+                    return
+                exec_mode = str(data.get("exec_mode", "solo")).lower()
+                if exec_mode not in {"solo", "trial", "chain", "swarm"}:
+                    exec_mode = "solo"
                 task = await svc.update_exec_mode(task_id, exec_mode)
                 meta = dict(task.meta or {})
                 for key in ("trial_candidates", "chain_stages", "swarm_units"):
@@ -436,6 +472,15 @@ class DispatchWorker:
                 task.meta = meta
                 await db.commit()
                 logger.info(f"[Dispatcher] exec_mode={exec_mode} 已保存 → {task_id}")
+                await publish_stage_event(
+                    self.bus,
+                    trace_id=task.trace_id,
+                    producer="dispatcher",
+                    event_type="task.mode.selected",
+                    task_id=task_id,
+                    stage="routing",
+                    payload={"mode": exec_mode, "source": "overmind"},
+                )
         except Exception as e:
             logger.warning(f"[Dispatcher] exec_mode 提取失败 {task_id}: {e}")
 

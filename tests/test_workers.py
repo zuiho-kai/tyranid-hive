@@ -14,6 +14,7 @@ from greyfield_hive.services.event_bus import (
     BusEvent,
     TOPIC_TASK_CREATED,
     TOPIC_TASK_STATUS,
+    TOPIC_TASK_STAGE,
     TOPIC_TASK_STALLED,
     TOPIC_TASK_COMPLETED,
     TOPIC_TASK_DISPATCH,
@@ -293,6 +294,42 @@ class TestDispatchWorker:
             assert thoughts.payload["synapse"] == "overmind"
             assert "output" in thoughts.payload
             assert "return_code" in thoughts.payload
+        finally:
+            await stop_worker(worker, task)
+
+    @pytest.mark.asyncio
+    async def test_dispatch_publishes_stage_events(self):
+        """task.dispatch → 应发布 task.stage.started/completed"""
+        bus = make_bus()
+        worker = DispatchWorker(max_concurrent=2)
+        worker.bus = bus
+        worker._adapter = MockAdapter()
+
+        stage_q = bus.subscribe(TOPIC_TASK_STAGE)
+        task = await start_worker(worker)
+        try:
+            await bus.publish(
+                topic=TOPIC_TASK_DISPATCH,
+                trace_id="trace-stage",
+                event_type="task.dispatch.request",
+                producer="orchestrator",
+                payload={
+                    "task_id": "BT-STAGE",
+                    "synapse": "code-expert",
+                    "message": "实现阶段事件",
+                    "next_state": "Planning",
+                },
+            )
+
+            started = await wait_for_event(stage_q, timeout=5.0)
+            completed = await wait_for_event(stage_q, timeout=5.0)
+
+            assert started.event_type == "task.stage.started"
+            assert started.payload["task_id"] == "BT-STAGE"
+            assert started.payload["synapse"] == "code-expert"
+            assert completed.event_type == "task.stage.completed"
+            assert completed.payload["task_id"] == "BT-STAGE"
+            assert completed.payload["synapse"] == "code-expert"
         finally:
             await stop_worker(worker, task)
 

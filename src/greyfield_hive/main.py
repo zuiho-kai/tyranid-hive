@@ -22,6 +22,7 @@ from greyfield_hive.workers.orchestrator import OrchestratorWorker
 from greyfield_hive.workers.dispatcher import DispatchWorker
 from greyfield_hive.workers.stall_detector import StallDetector
 from greyfield_hive.api.tasks import router as tasks_router
+from greyfield_hive.api.missions import router as missions_router
 from greyfield_hive.api.units import router as units_router
 from greyfield_hive.api.events import router as events_router
 from greyfield_hive.api.lessons import router as lessons_router
@@ -93,6 +94,7 @@ app.add_middleware(RequestLoggingMiddleware)
 
 # 注册路由
 app.include_router(tasks_router)
+app.include_router(missions_router)
 app.include_router(units_router)
 app.include_router(events_router)
 app.include_router(lessons_router)
@@ -148,6 +150,14 @@ async def root():
         "events": "/api/events",
         "websocket": "/ws",
     }
+
+
+@app.get("/dashboard")
+async def dashboard():
+    index = _STATIC_DIR / "index.html"
+    if index.exists():
+        return FileResponse(str(index))
+    return {"detail": "dashboard 静态资源未构建"}
 
 
 # 静态资源（dashboard build 产物）

@@ -94,6 +94,34 @@ export interface TaskStats {
   by_state: Record<string, number>
 }
 
+export type MissionMode = 'auto' | 'solo' | 'trial' | 'chain' | 'swarm'
+
+export interface MissionUnitInput {
+  synapse: string
+  message: string
+  domain?: string
+}
+
+export interface MissionRequest {
+  title: string
+  description?: string
+  priority?: string
+  creator?: string
+  mode?: MissionMode
+  trial_candidates?: string[]
+  chain_stages?: string[]
+  swarm_units?: MissionUnitInput[]
+}
+
+export interface MissionResponse {
+  task: Task
+  run: {
+    started: boolean
+    entrypoint: string
+    mode: MissionMode
+  }
+}
+
 // ── Tasks ────────────────────────────────────────────────
 
 export async function fetchTasks(params?: { state?: string; q?: string; priority?: string; sort_by?: string; order?: string }): Promise<Task[]> {
@@ -119,6 +147,19 @@ export async function createTask(payload: { title: string; description?: string;
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
+  return r.json()
+}
+
+export async function createMission(payload: MissionRequest): Promise<MissionResponse> {
+  const r = await fetch(`${BASE}/missions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}))
+    throw new Error(err.detail || `HTTP ${r.status}`)
+  }
   return r.json()
 }
 
