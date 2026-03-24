@@ -311,10 +311,11 @@ class DispatchWorker:
                 f"Domain  : {domain}\n"
                 f"Role    : {system_prompt[:120].replace(chr(10), ' ')}\n"
             )
-            # 只在有实际内容时追加历史经验和作战手册
-            if lessons_text and lessons_text != "（暂无相关经验）":
-                context_block += f"\n参考经验:\n{lessons_text}"
-            if playbooks_text and playbooks_text != "（暂无相关手册）":
+            # Keep stable section headers/placeholders so tests and operators
+            # can rely on a predictable enriched prompt shape.
+            if lessons_text:
+                context_block += f"\n历史经验:\n{lessons_text}"
+            if playbooks_text:
                 context_block += f"\n作战手册:\n{playbooks_text}"
             return context_block
 

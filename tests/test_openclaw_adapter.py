@@ -107,15 +107,14 @@ def test_get_adapter_prefers_openclaw_over_claude(monkeypatch):
 
 def test_get_adapter_falls_back_to_claude(monkeypatch):
     """openclaw 不存在但 claude 存在时，使用 claude"""
-    from greyfield_hive.adapters.openclaw import get_adapter, AsyncSubprocessAdapter
+    from greyfield_hive.adapters.openclaw import get_adapter, ClaudeCodeAdapter
 
     def fake_which(cmd):
         return "/usr/local/bin/claude" if cmd == "claude" else None
 
     monkeypatch.setattr("shutil.which", fake_which)
     adapter = get_adapter()
-    assert isinstance(adapter, AsyncSubprocessAdapter)
-    assert "claude" in adapter.cmd[0]
+    assert isinstance(adapter, ClaudeCodeAdapter)
 
 
 # ── DispatchWorker 集成：使用新适配器 ────────────────────
