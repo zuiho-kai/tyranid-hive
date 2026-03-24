@@ -28,7 +28,7 @@ _STATE_NEXT: dict[TaskState, TaskState] = {
     TaskState.Consolidating: TaskState.Complete,
 }
 from greyfield_hive.db import SessionLocal
-from greyfield_hive.services.task_service import TaskService
+from greyfield_hive.services.task_service import TaskService, TaskNotFoundError
 
 
 class OrchestratorWorker:
@@ -103,6 +103,16 @@ class OrchestratorWorker:
         if not task_id:
             return
 
+        try:
+            async with SessionLocal() as db:
+                task = await TaskService(db).get_by_id(task_id)
+                mode_source = (task.meta or {}).get("mode_source")
+                if mode_source == "user":
+                    logger.info(f"[Orchestrator] 新任务 {task_id} 已显式指定模式，跳过主脑")
+                    return
+        except TaskNotFoundError:
+            pass
+
         logger.info(f"[Orchestrator] 新任务 {task_id} → 派发给主脑")
         await self.bus.publish(
             topic=TOPIC_TASK_DISPATCH,
@@ -131,6 +141,20 @@ class OrchestratorWorker:
             return
 
         # 特定状态需要主动派发
+        try:
+            async with SessionLocal() as db:
+                task = await TaskService(db).get_by_id(task_id)
+                mode_source = (task.meta or {}).get("mode_source")
+
+            if (
+                mode_source == "user"
+                and new_state in {TaskState.Planning, TaskState.Reviewing}
+            ):
+                logger.info(f"[Orchestrator] {task_id}: {new_state_str} 为显式模式流程，跳过主脑")
+                return
+        except TaskNotFoundError:
+            pass
+
         synapse = STATE_SYNAPSE_MAP.get(new_state)
         if synapse is None:
             # Spawning → ModeRouter 路由到对应执行路径

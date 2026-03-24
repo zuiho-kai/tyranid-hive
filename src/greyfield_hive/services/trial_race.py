@@ -18,6 +18,8 @@ from typing import Optional
 from loguru import logger
 
 from greyfield_hive.services.chain_runner import _record_fitness
+from greyfield_hive.services.execution_events import publish_stage_event
+from greyfield_hive.services.event_bus import get_event_bus
 from greyfield_hive.workers.dispatcher import (
     DispatchWorker,
     _infer_success,
@@ -145,6 +147,7 @@ class TrialRaceService:
     def __init__(self, db=None) -> None:
         self._db = db
         self._worker = DispatchWorker()
+        self._bus = get_event_bus()
 
     async def run(
         self,
@@ -163,6 +166,15 @@ class TrialRaceService:
             domain = _SYNAPSE_DOMAIN.get(synapse_a, "general")
 
         logger.info(f"[TrialRace] {task_id} 开始赛马: {synapse_a} vs {synapse_b}")
+        await publish_stage_event(
+            self._bus,
+            trace_id=trace_id,
+            producer="trial-race",
+            event_type="task.stage.started",
+            task_id=task_id,
+            stage="trial",
+            payload={"mode": "trial", "synapses": [synapse_a, synapse_b]},
+        )
 
         # 构建富提示词（共用同一个 message 和 domain）
         enriched_a, enriched_b = await asyncio.gather(
@@ -228,8 +240,8 @@ class TrialRaceService:
 
         # 发布 TrialClosed 事件（供 EvolutionMaster 订阅）
         try:
-            from greyfield_hive.services.event_bus import get_event_bus, TOPIC_TRIAL_CLOSED
-            await get_event_bus().publish(
+            from greyfield_hive.services.event_bus import TOPIC_TRIAL_CLOSED
+            await self._bus.publish(
                 topic=TOPIC_TRIAL_CLOSED,
                 event_type="trial.closed",
                 producer="trial-race",
@@ -246,6 +258,21 @@ class TrialRaceService:
             )
         except Exception as e:
             logger.warning(f"[TrialRace] TrialClosed 事件发布失败: {e}")
+
+        await publish_stage_event(
+            self._bus,
+            trace_id=trace_id,
+            producer="trial-race",
+            event_type="task.stage.completed" if winner_name else "task.stage.failed",
+            task_id=task_id,
+            stage="trial",
+            payload={
+                "mode": "trial",
+                "winner": winner_name,
+                "tie": tie,
+                "scores": {synapse_a: score_a.total, synapse_b: score_b.total},
+            },
+        )
 
         return trial
 

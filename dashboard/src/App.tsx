@@ -1,40 +1,46 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
-import { createTask, fetchStats, fetchSynapses, fetchTasks } from './api'
-import type { BusEvent, Synapse, Task, TaskStats } from './api'
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
+import {
+  createMission,
+  fetchStats,
+  fetchSynapses,
+  fetchTasks,
+} from './api'
+import type {
+  BusEvent,
+  MissionMode,
+  MissionRequest,
+  MissionUnitInput,
+  Synapse,
+  Task,
+  TaskStats,
+} from './api'
 import { useHiveWebSocket } from './useWebSocket'
 import ChannelSidebar from './components/ChannelSidebar'
 import DetailPanel from './components/DetailPanel'
 import TrunkChat from './components/TrunkChat'
 
-export interface UserMessage {
-  id: string
-  taskId: string
-  content: string
-  ts: string
+export type ChannelKey = 'trunk' | 'trial' | 'chain' | 'swarm' | 'ledger'
+
+export interface MissionDraft {
+  message: string
+  priority: string
+  mode: MissionMode
+  trialCandidates: [string, string]
+  chainStages: string[]
+  swarmUnits: MissionUnitInput[]
 }
 
-const STATE_FILTERS = [
-  '',
-  'Incubating',
-  'Planning',
-  'Reviewing',
-  'Spawning',
-  'Executing',
-  'Consolidating',
-  'Dormant',
-  'Complete',
-  'Cancelled',
-] as const
-
-const SORT_OPTIONS = [
-  { value: 'updated_at:desc', label: 'Recently updated' },
-  { value: 'created_at:desc', label: 'Recently created' },
-  { value: 'priority:asc', label: 'Priority' },
-  { value: 'state:asc', label: 'State' },
-] as const
-
-type StateFilter = typeof STATE_FILTERS[number]
-type SortOption = typeof SORT_OPTIONS[number]['value']
+const DEFAULT_DRAFT: MissionDraft = {
+  message: '',
+  priority: 'high',
+  mode: 'auto',
+  trialCandidates: ['code-expert', 'research-analyst'],
+  chainStages: ['code-expert', 'research-analyst'],
+  swarmUnits: [
+    { synapse: 'research-analyst', message: 'Collect research inputs' },
+    { synapse: 'code-expert', message: 'Implement the main deliverable' },
+  ],
+}
 
 const DONE_STATES = new Set(['Complete', 'Cancelled'])
 
@@ -42,141 +48,162 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [synapses, setSynapses] = useState<Synapse[]>([])
   const [stats, setStats] = useState<TaskStats | null>(null)
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
+  const [selectedChannel, setSelectedChannel] = useState<ChannelKey>('trunk')
+  const [draft, setDraft] = useState<MissionDraft>(DEFAULT_DRAFT)
   const [search, setSearch] = useState('')
-  const [stateFilter, setStateFilter] = useState<StateFilter>('')
-  const [sortOpt, setSortOpt] = useState<SortOption>('updated_at:desc')
-  const [userMessages, setUserMessages] = useState<Record<string, UserMessage[]>>({})
-  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const deferredSearch = useDeferredValue(search)
 
-  const refreshTasks = useCallback(
-    async (q?: string, state?: string, sort: SortOption = sortOpt) => {
-      setLoading(true)
-      try {
-        const [sortBy, order] = sort.split(':')
-        const params: { q?: string; state?: string; sort_by?: string; order?: string } = {
-          sort_by: sortBy,
-          order,
-        }
-        if (q) params.q = q
-        if (state) params.state = state
-
-        const [nextTasks, nextStats] = await Promise.all([fetchTasks(params), fetchStats()])
-        setTasks(nextTasks)
-        setStats(nextStats)
-        setSelectedTask(current => {
-          if (!current) return current
-          return nextTasks.find(task => task.id === current.id) ?? null
-        })
-      } finally {
-        setLoading(false)
-      }
-    },
-    [sortOpt],
-  )
+  const refreshTasks = useCallback(async () => {
+    setLoading(true)
+    try {
+      const params = deferredSearch.trim() ? { q: deferredSearch.trim() } : undefined
+      const [nextTasks, nextStats] = await Promise.all([fetchTasks(params), fetchStats()])
+      setTasks(nextTasks)
+      setStats(nextStats)
+      setSelectedTaskId(current => {
+        if (!current) return nextTasks.find(task => !DONE_STATES.has(task.state))?.id ?? nextTasks[0]?.id ?? null
+        return nextTasks.some(task => task.id === current)
+          ? current
+          : nextTasks.find(task => !DONE_STATES.has(task.state))?.id ?? nextTasks[0]?.id ?? null
+      })
+    } finally {
+      setLoading(false)
+    }
+  }, [deferredSearch])
 
   useEffect(() => {
     void fetchSynapses().then(setSynapses)
-  }, [])
+    void refreshTasks()
+  }, [refreshTasks])
 
-  useEffect(() => {
-    if (searchTimer.current) clearTimeout(searchTimer.current)
-    searchTimer.current = setTimeout(() => {
-      void refreshTasks(search || undefined, stateFilter || undefined, sortOpt)
-    }, 220)
-    return () => {
-      if (searchTimer.current) clearTimeout(searchTimer.current)
+  const handleWsEvent = useCallback((event: BusEvent) => {
+    if (event.topic.startsWith('task.')) {
+      void refreshTasks()
     }
-  }, [refreshTasks, search, sortOpt, stateFilter])
-
-  useEffect(() => {
-    if (tasks.length === 0) {
-      setSelectedTask(null)
-      return
-    }
-
-    setSelectedTask(current => {
-      if (current) {
-        const matched = tasks.find(task => task.id === current.id)
-        if (matched) return matched
-      }
-      return tasks.find(task => !DONE_STATES.has(task.state)) ?? tasks[0]
-    })
-  }, [tasks])
-
-  const handleWsEvent = useCallback(
-    (event: BusEvent) => {
-      if (event.topic.startsWith('task.')) {
-        void refreshTasks(search || undefined, stateFilter || undefined, sortOpt)
-      }
-    },
-    [refreshTasks, search, sortOpt, stateFilter],
-  )
+  }, [refreshTasks])
 
   const { connected, events } = useHiveWebSocket(handleWsEvent)
 
-  const handleCreateTask = async (input: {
-    title: string
-    description: string
-    priority: string
-  }) => {
-    await createTask(input)
-    await refreshTasks(search || undefined, stateFilter || undefined, sortOpt)
-  }
+  const selectedTask = useMemo(
+    () => tasks.find(task => task.id === selectedTaskId) ?? null,
+    [selectedTaskId, tasks],
+  )
 
-  const handleSendMessage = (taskId: string, content: string) => {
-    const message: UserMessage = {
-      id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      taskId,
-      content,
-      ts: new Date().toISOString(),
+  const filteredTasks = useMemo(() => {
+    const needle = deferredSearch.trim().toLowerCase()
+    if (!needle) return tasks
+    return tasks.filter(task =>
+      [task.title, task.description, task.id, task.exec_mode ?? '']
+        .join(' ')
+        .toLowerCase()
+        .includes(needle),
+    )
+  }, [deferredSearch, tasks])
+
+  const handleSubmitMission = useCallback(async () => {
+    const description = draft.message.trim()
+    if (!description) return
+
+    setSubmitting(true)
+    try {
+      const title = deriveTitle(description)
+      const payload = buildMissionPayload(draft, title, description)
+      const mission = await createMission(payload)
+      setTasks(current => [mission.task, ...current.filter(task => task.id !== mission.task.id)])
+      setSelectedTaskId(mission.task.id)
+      setSelectedChannel(channelFromMode(mission.task.exec_mode))
+      setDraft(current => ({ ...current, message: '' }))
+      await refreshTasks()
+    } finally {
+      setSubmitting(false)
     }
-
-    setUserMessages(current => ({
-      ...current,
-      [taskId]: [...(current[taskId] ?? []), message],
-    }))
-  }
+  }, [draft, refreshTasks])
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-ww-base text-ww-main">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(155,126,189,0.18),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(226,149,120,0.16),transparent_26%),linear-gradient(180deg,rgba(255,255,255,0.45),transparent_40%)]" />
-      <div className="relative flex h-screen min-h-0 p-3 md:p-4">
-        <div className="flex min-h-0 w-full flex-col gap-3 lg:flex-row lg:gap-0 lg:overflow-hidden lg:rounded-[30px] lg:border lg:border-ww-subtle lg:bg-[rgba(255,250,245,0.78)] lg:shadow-[0_28px_70px_rgba(42,35,64,0.14)] lg:backdrop-blur-xl">
+    <div className="relative min-h-screen overflow-hidden bg-[#100d15] text-[#f7f1eb]">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(174,131,217,0.28),transparent_26%),radial-gradient(circle_at_bottom_right,rgba(75,170,120,0.18),transparent_22%),linear-gradient(180deg,#18131f_0%,#100d15_52%,#0b0910_100%)]" />
+      <div className="absolute inset-0 opacity-[0.16]" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px)', backgroundSize: '22px 22px' }} />
+
+      <div className="relative flex min-h-screen flex-col gap-3 p-3 md:p-4 lg:h-screen lg:flex-row lg:overflow-hidden">
         <ChannelSidebar
           connected={connected}
           loading={loading}
           onSearchChange={setSearch}
-          onSelect={taskId => setSelectedTask(tasks.find(task => task.id === taskId) ?? null)}
-          onSortChange={value => setSortOpt(value as SortOption)}
-          onStateFilterChange={value => setStateFilter(value as StateFilter)}
+          onSelectChannel={setSelectedChannel}
+          onSelectTask={setSelectedTaskId}
           search={search}
-          selectedId={selectedTask?.id ?? null}
-          sortOpt={sortOpt}
-          sortOptions={SORT_OPTIONS}
-          stateFilter={stateFilter}
-          stateOptions={STATE_FILTERS}
+          selectedChannel={selectedChannel}
+          selectedTaskId={selectedTaskId}
           stats={stats}
           synapseCount={synapses.length}
-          tasks={tasks}
+          tasks={filteredTasks}
         />
-        <div className="min-h-0 min-w-0 flex-1 overflow-hidden lg:border-x lg:border-ww-subtle">
+
+        <div className="min-h-[52vh] flex-1 overflow-hidden rounded-[30px] border border-white/10 bg-[rgba(18,14,26,0.78)] shadow-[0_28px_90px_rgba(0,0,0,0.42)] backdrop-blur-xl">
           <TrunkChat
+            draft={draft}
             events={events}
-            onSendMessage={handleSendMessage}
+            onDraftChange={setDraft}
+            onSelectChannel={setSelectedChannel}
+            onSubmitMission={handleSubmitMission}
+            selectedChannel={selectedChannel}
             selectedTask={selectedTask}
-            userMessages={selectedTask ? userMessages[selectedTask.id] ?? [] : []}
+            submitting={submitting}
+            synapses={synapses}
           />
         </div>
+
         <DetailPanel
-          onCreateTask={handleCreateTask}
-          onRefresh={() => refreshTasks(search || undefined, stateFilter || undefined, sortOpt)}
+          draft={draft}
+          events={events}
+          selectedChannel={selectedChannel}
           selectedTask={selectedTask}
           synapses={synapses}
         />
-        </div>
       </div>
     </div>
   )
+}
+
+function buildMissionPayload(draft: MissionDraft, title: string, description: string): MissionRequest {
+  const payload: MissionRequest = {
+    title,
+    description,
+    priority: draft.priority,
+    mode: draft.mode,
+  }
+
+  if (draft.mode === 'trial') {
+    payload.trial_candidates = draft.trialCandidates
+  }
+  if (draft.mode === 'chain') {
+    payload.chain_stages = draft.chainStages.filter(Boolean)
+  }
+  if (draft.mode === 'swarm') {
+    payload.swarm_units = draft.swarmUnits
+      .filter(unit => unit.synapse && unit.message.trim())
+      .map(unit => ({
+        synapse: unit.synapse,
+        message: unit.message.trim(),
+        domain: unit.domain?.trim() || '',
+      }))
+  }
+
+  return payload
+}
+
+function deriveTitle(message: string) {
+  const firstLine = message.split('\n').find(line => line.trim())?.trim() ?? message.trim()
+  if (firstLine.length <= 54) return firstLine
+  return `${firstLine.slice(0, 54).trimEnd()}…`
+}
+
+function channelFromMode(mode: string | null): ChannelKey {
+  if (mode === 'trial') return 'trial'
+  if (mode === 'chain') return 'chain'
+  if (mode === 'swarm') return 'swarm'
+  return 'trunk'
 }

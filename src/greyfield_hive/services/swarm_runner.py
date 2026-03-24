@@ -22,6 +22,8 @@ from typing import List
 from loguru import logger
 
 from greyfield_hive.services.chain_runner import _record_fitness
+from greyfield_hive.services.event_bus import get_event_bus
+from greyfield_hive.services.execution_events import publish_stage_event
 from greyfield_hive.workers.dispatcher import (
     DispatchWorker,
     _infer_success,
@@ -79,6 +81,7 @@ class SwarmRunnerService:
     def __init__(self, db=None) -> None:
         self._db = db
         self._worker = DispatchWorker()
+        self._bus = get_event_bus()
 
     async def run(
         self,
@@ -96,11 +99,29 @@ class SwarmRunnerService:
             f"[Swarm] {task_id} 启动 {len(units)} 个 units，"
             f"最大并发={max_concurrent}"
         )
+        await publish_stage_event(
+            self._bus,
+            trace_id=trace_id,
+            producer="swarm-runner",
+            event_type="task.stage.started",
+            task_id=task_id,
+            stage="swarm",
+            payload={"mode": "swarm", "total": len(units), "max_concurrent": max_concurrent},
+        )
 
         async def run_unit(unit: SwarmUnit, idx: int) -> SwarmUnitResult:
             async with sem:
                 domain = unit.domain or _SYNAPSE_DOMAIN.get(unit.synapse, "general")
                 logger.info(f"[Swarm] unit[{idx}] {unit.synapse}: {unit.message[:40]}…")
+                await publish_stage_event(
+                    self._bus,
+                    trace_id=trace_id,
+                    producer="swarm-runner",
+                    event_type="task.stage.started",
+                    task_id=task_id,
+                    stage=f"swarm:{idx+1}",
+                    payload={"synapse": unit.synapse, "index": idx + 1, "total": len(units)},
+                )
 
                 enriched = await self._worker._build_enriched_message(
                     unit.synapse, unit.message, task_id, domain
@@ -123,7 +144,7 @@ class SwarmRunnerService:
                 )
 
                 # 写入 progress_log
-                await self._worker._persist_progress(unit.synapse, unit.synapse, raw)
+                await self._worker._persist_progress(task_id, unit.synapse, raw)
 
                 # 写入 Lessons Bank
                 await self._worker._write_outcome_lesson(
@@ -143,6 +164,15 @@ class SwarmRunnerService:
                     f"{status} rc={result.returncode} "
                     f"{result.elapsed_sec:.1f}s"
                 )
+                await publish_stage_event(
+                    self._bus,
+                    trace_id=trace_id,
+                    producer="swarm-runner",
+                    event_type="task.stage.completed" if result.success else "task.stage.failed",
+                    task_id=task_id,
+                    stage=f"swarm:{idx+1}",
+                    payload={"synapse": unit.synapse, "index": idx + 1, "total": len(units)},
+                )
                 return result
 
         tasks = [run_unit(u, i) for i, u in enumerate(units)]
@@ -153,5 +183,19 @@ class SwarmRunnerService:
             f"[Swarm] 完成: 总={swarm.total} "
             f"成功={swarm.success_count} 失败={swarm.fail_count} "
             f"成功率={swarm.success_rate:.0%}"
+        )
+        await publish_stage_event(
+            self._bus,
+            trace_id=trace_id,
+            producer="swarm-runner",
+            event_type="task.stage.completed" if swarm.all_success else "task.stage.failed",
+            task_id=task_id,
+            stage="swarm",
+            payload={
+                "mode": "swarm",
+                "success_count": swarm.success_count,
+                "fail_count": swarm.fail_count,
+                "total": swarm.total,
+            },
         )
         return swarm
