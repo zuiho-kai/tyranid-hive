@@ -176,6 +176,9 @@ export function formatSpeaker(value: string) {
   if (value === 'user') return '用户'
   if (value === 'mission-api') return '任务接口'
   if (value === 'mode-router') return '路由器'
+  if (value === 'trial-race') return '对比评审'
+  if (value === 'chain-runner') return '串行协作'
+  if (value === 'swarm-runner') return '并行协作'
   if (value === 'task_service') return '任务服务'
   if (value === 'dispatcher') return '调度器'
   return sanitizeText(value, value)

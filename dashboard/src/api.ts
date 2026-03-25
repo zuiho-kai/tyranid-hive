@@ -79,10 +79,12 @@ export interface Playbook {
 export interface BusEvent {
   event_id: string
   trace_id: string
+  task_id?: string | null
   topic: string
   event_type: string
   producer: string
   payload: Record<string, unknown>
+  meta?: Record<string, unknown>
   created_at: string
 }
 

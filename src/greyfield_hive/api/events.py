@@ -27,6 +27,7 @@ def _event_to_dict(ev: HiveEvent) -> dict:
         "event_type": ev.event_type,
         "producer":   ev.producer,
         "payload":    ev.payload,
+        "meta":       ev.meta or {},
         "created_at": ev.created_at.isoformat() if ev.created_at else None,
     }
 
@@ -98,6 +99,7 @@ async def stream_events(
                         "event_type": ev.event_type,
                         "producer":   ev.producer,
                         "payload":    ev.payload,
+                        "meta":       ev.meta,
                         "created_at": ev.created_at,
                     }, ensure_ascii=False)
                     yield f"data: {data}\n\n"

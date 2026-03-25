@@ -27,7 +27,7 @@ from greyfield_hive.services.event_bus import (
     TOPIC_AGENT_THOUGHTS,
     TOPIC_AGENT_HEARTBEAT,
 )
-from greyfield_hive.services.execution_events import publish_stage_event
+from greyfield_hive.services.execution_events import publish_stage_event, publish_task_event
 from greyfield_hive.adapters.openclaw import get_adapter, OpenClawAdapter
 from greyfield_hive.models.task import TaskState
 from greyfield_hive.services.task_service import TaskService, InvalidTransitionError
@@ -181,6 +181,89 @@ def _extract_waiting_input_blockers(raw: str) -> list[str]:
     return []
 
 
+def _task_combined_text(task) -> str:
+    title = str(task.title or "")
+    description = str(task.description or "")
+    return f"{title}\n{description}".lower()
+
+
+def _is_optional_scope_blocker(text: str) -> bool:
+    lowered = str(text).lower()
+    return any(
+        hint in lowered
+        for hint in (
+            "统计范围",
+            "时间口径",
+            "输出格式",
+            "盘中实时",
+            "收盘后",
+            "自然语言摘要",
+            "结构化数据",
+        )
+    )
+
+
+def _apply_default_market_overview_plan(task, data: dict) -> dict:
+    combined = _task_combined_text(task)
+    market_hints = ("港股", "美股", "a股", "比特币", "btc", "股票", "市场", "盘面", "行情", "指数")
+    trigger_hints = ("今天", "今日", "情况", "概览", "走势", "总结", "怎么样", "爬", "抓", "查")
+
+    if not any(hint in combined for hint in market_hints):
+        return data
+    if not any(hint in combined for hint in trigger_hints):
+        return data
+
+    blockers = [str(item).strip() for item in data.get("blockers", []) if str(item).strip()]
+    if blockers and not all(_is_optional_scope_blocker(item) for item in blockers):
+        return data
+
+    domain = str(data.get("domain", "") or "finance/market-data")
+    if "finance" not in domain and "market" not in domain:
+        domain = "finance/market-data"
+
+    market_name = "市场"
+    if "港股" in combined:
+        market_name = "港股"
+    elif "美股" in combined:
+        market_name = "美股"
+    elif "比特币" in combined or "btc" in combined:
+        market_name = "比特币"
+
+    use_swarm = any(
+        hint in combined
+        for hint in ("并行", "同时", "多源", "多个来源", "分维度", "分别抓", "全面", "全量")
+    )
+
+    next_data = dict(data)
+    next_data["summary"] = f"按默认口径抓取今日{market_name}概览，并整理成简明市场摘要。"
+    next_data["domain"] = domain
+    next_data["blockers"] = []
+    next_data["recommended_state"] = TaskState.Spawning.value
+    next_data["todos"] = [
+        f"抓取今日{market_name}主要指数、涨跌幅与成交额",
+        f"补充今日{market_name}资金流、板块表现和活跃个股",
+        "整理关键数据并产出面向用户的简明市场摘要",
+    ]
+
+    if use_swarm:
+        next_data["exec_mode"] = "swarm"
+        next_data["mode_justification"] = "用户意图更接近多路独立采集，适合先并行抓不同维度，再由主脑收敛。"
+        next_data["swarm_units"] = [
+            {"synapse": "finance-scout", "message": f"抓取今日{market_name}主要指数、涨跌幅与成交额", "domain": "finance"},
+            {"synapse": "finance-scout", "message": f"抓取今日{market_name}资金流与板块表现", "domain": "finance"},
+            {"synapse": "research-analyst", "message": f"整理今日{market_name}活跃个股与市场焦点", "domain": "research"},
+        ]
+        next_data.pop("trial_candidates", None)
+        next_data.pop("chain_stages", None)
+    else:
+        next_data["exec_mode"] = "solo"
+        next_data["mode_justification"] = "这是日常市场概览任务，主脑可按顺序工具链直接完成，默认保持 Solo。"
+        next_data.pop("trial_candidates", None)
+        next_data.pop("chain_stages", None)
+        next_data.pop("swarm_units", None)
+    return next_data
+
+
 class DispatchWorker:
     """派发器 —— 将任务分配给对应的小主脑（OpenClaw agent）"""
 
@@ -226,12 +309,14 @@ class DispatchWorker:
             next_state = payload.get("next_state", "")
             trace_id   = event.trace_id
 
-            await self.bus.publish(
+            await publish_task_event(
+                self.bus,
                 topic=TOPIC_AGENT_HEARTBEAT,
                 trace_id=trace_id,
                 event_type="agent.dispatch.start",
                 producer="dispatcher",
-                payload={"task_id": task_id, "synapse": synapse},
+                task_id=task_id,
+                payload={"synapse": synapse},
             )
 
             # 注入基因上下文
@@ -255,17 +340,18 @@ class DispatchWorker:
             )
             result = await self._invoke_agent(synapse, enriched_message, task_id, trace_id)
 
-            await self.bus.publish(
+            await publish_task_event(
+                self.bus,
                 topic=TOPIC_AGENT_THOUGHTS,
                 trace_id=trace_id,
                 event_type="agent.output",
                 producer=f"synapse.{synapse}",
+                task_id=task_id,
                 payload={
-                    "task_id":     task_id,
-                    "synapse":     synapse,
-                    "output":      result.get("stdout", ""),
+                    "synapse": synapse,
+                    "output": result.get("stdout", ""),
                     "return_code": result.get("returncode", -1),
-                    "error":       result.get("stderr", ""),
+                    "error": result.get("stderr", ""),
                 },
             )
 
@@ -548,14 +634,14 @@ class DispatchWorker:
                     "exec_mode": "solo",
                 }
 
-            blockers = [str(item).strip() for item in data.get("blockers", []) if str(item).strip()]
-            risks = [str(item).strip() for item in data.get("risks", []) if str(item).strip()]
-            effective_next_state = _normalize_overmind_state(data, fallback_next_state)
-
             async with SessionLocal() as db:
                 from greyfield_hive.services.task_service import TaskService
                 svc = TaskService(db)
                 task = await svc.get_by_id(task_id)
+                data = _apply_default_market_overview_plan(task, data)
+                blockers = [str(item).strip() for item in data.get("blockers", []) if str(item).strip()]
+                risks = [str(item).strip() for item in data.get("risks", []) if str(item).strip()]
+                effective_next_state = _normalize_overmind_state(data, fallback_next_state)
                 meta = dict(task.meta or {})
 
                 mode_selected = False
@@ -574,6 +660,21 @@ class DispatchWorker:
                 meta["analysis_blockers"] = blockers
                 meta["awaiting_user_input"] = bool(blockers)
                 meta["recommended_state"] = effective_next_state
+                meta["analysis_exec_mode"] = exec_mode
+                meta["mode_justification"] = str(data.get("mode_justification", ""))
+                meta["route_target"] = "waiting-input" if blockers else exec_mode
+                if blockers:
+                    meta["route_reason"] = "缺少关键信息，先等待用户补充，再继续规划或执行。"
+                elif str(data.get("mode_justification", "")).strip():
+                    meta["route_reason"] = str(data.get("mode_justification", "")).strip()
+                elif exec_mode == "solo":
+                    meta["route_reason"] = "主脑判断任务已足够明确，先按单线执行推进。"
+                elif exec_mode == "trial":
+                    meta["route_reason"] = "主脑判断需要对比多个方案或多个代理结果，再决定后续方向。"
+                elif exec_mode == "chain":
+                    meta["route_reason"] = "主脑判断任务需要前后串行协作，上一阶段输出会喂给下一阶段。"
+                else:
+                    meta["route_reason"] = "主脑判断任务可以拆成多个相对独立的单元，并行推进更合适。"
                 for key in ("trial_candidates", "chain_stages", "swarm_units"):
                     if key in data:
                         meta[key] = data[key]

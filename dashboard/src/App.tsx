@@ -1,6 +1,7 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import {
   createMission,
+  fetchEvents,
   fetchStats,
   fetchSynapses,
   fetchTasks,
@@ -18,6 +19,8 @@ import { useHiveWebSocket } from './useWebSocket'
 import ChannelSidebar from './components/ChannelSidebar'
 import DetailPanel from './components/DetailPanel'
 import TrunkChat from './components/TrunkChat'
+
+export type TaskFilterKey = 'all' | 'active' | 'waiting' | 'done'
 
 export interface MissionDraft {
   message: string
@@ -47,8 +50,11 @@ export default function App() {
   const [synapses, setSynapses] = useState<Synapse[]>([])
   const [stats, setStats] = useState<TaskStats | null>(null)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
+  const [selectedTaskEvents, setSelectedTaskEvents] = useState<BusEvent[]>([])
   const [draft, setDraft] = useState<MissionDraft>(DEFAULT_DRAFT)
   const [search, setSearch] = useState('')
+  const [taskFilter, setTaskFilter] = useState<TaskFilterKey>('active')
+  const [showDetail, setShowDetail] = useState(false)
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const deferredSearch = useDeferredValue(search)
@@ -76,20 +82,36 @@ export default function App() {
     void refreshTasks()
   }, [refreshTasks])
 
-  const handleWsEvent = useCallback((event: BusEvent) => {
-    if (event.topic.startsWith('task.')) {
-      void refreshTasks()
+  const refreshSelectedEvents = useCallback(async (taskId: string | null) => {
+    if (!taskId) {
+      setSelectedTaskEvents([])
+      return
     }
-  }, [refreshTasks])
+    const nextEvents = await fetchEvents(taskId)
+    setSelectedTaskEvents(nextEvents)
+  }, [])
 
-  const { connected, events } = useHiveWebSocket(handleWsEvent)
+  useEffect(() => {
+    void refreshSelectedEvents(selectedTaskId)
+  }, [refreshSelectedEvents, selectedTaskId])
 
   const selectedTask = useMemo(
     () => tasks.find(task => task.id === selectedTaskId) ?? null,
     [selectedTaskId, tasks],
   )
 
-  const filteredTasks = useMemo(() => {
+  const handleWsEvent = useCallback((event: BusEvent) => {
+    if (event.topic.startsWith('task.') || event.topic.startsWith('agent.')) {
+      void refreshTasks()
+    }
+    if (selectedTask && matchesTaskEvent(selectedTask, event)) {
+      void refreshSelectedEvents(selectedTask.id)
+    }
+  }, [refreshSelectedEvents, refreshTasks, selectedTask])
+
+  const { connected, events } = useHiveWebSocket(handleWsEvent)
+
+  const searchedTasks = useMemo(() => {
     const needle = deferredSearch.trim().toLowerCase()
     if (!needle) return tasks
     return tasks.filter(task =>
@@ -99,6 +121,33 @@ export default function App() {
         .includes(needle),
     )
   }, [deferredSearch, tasks])
+
+  const filteredTasks = useMemo(() => {
+    if (taskFilter === 'active') return searchedTasks.filter(task => !DONE_STATES.has(task.state))
+    if (taskFilter === 'waiting') return searchedTasks.filter(task => task.state === 'WaitingInput')
+    if (taskFilter === 'done') return searchedTasks.filter(task => DONE_STATES.has(task.state))
+    return searchedTasks
+  }, [searchedTasks, taskFilter])
+
+  const counts = useMemo(() => ({
+    all: tasks.length,
+    active: tasks.filter(task => !DONE_STATES.has(task.state)).length,
+    waiting: tasks.filter(task => task.state === 'WaitingInput').length,
+    done: tasks.filter(task => DONE_STATES.has(task.state)).length,
+  }), [tasks])
+
+  const detailEvents = useMemo(() => {
+    if (!selectedTask) return []
+    const liveEvents = events.filter(event => matchesTaskEvent(selectedTask, event))
+    const merged = new Map<string, BusEvent>()
+    for (const event of [...selectedTaskEvents, ...liveEvents]) {
+      const key = event.event_id || `${event.trace_id}-${event.event_type}-${event.created_at}`
+      merged.set(key, event)
+    }
+    return Array.from(merged.values()).sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    )
+  }, [events, selectedTask, selectedTaskEvents])
 
   const handleSubmitMission = useCallback(async () => {
     const description = draft.message.trim()
@@ -111,6 +160,7 @@ export default function App() {
       const mission = await createMission(payload)
       setTasks(current => [mission.task, ...current.filter(task => task.id !== mission.task.id)])
       setSelectedTaskId(mission.task.id)
+      setShowDetail(true)
       setDraft(current => ({ ...current, message: '' }))
       await refreshTasks()
     } finally {
@@ -126,10 +176,16 @@ export default function App() {
       <div className="relative flex min-h-screen flex-col gap-4 p-4 lg:h-screen lg:flex-row lg:overflow-hidden">
         <ChannelSidebar
           connected={connected}
+          counts={counts}
           loading={loading}
           onSearchChange={setSearch}
-          onSelectTask={setSelectedTaskId}
+          onSelectFilter={setTaskFilter}
+          onSelectTask={taskId => {
+            setSelectedTaskId(taskId)
+            setShowDetail(true)
+          }}
           search={search}
+          selectedFilter={taskFilter}
           selectedTaskId={selectedTaskId}
           stats={stats}
           synapseCount={synapses.length}
@@ -139,21 +195,25 @@ export default function App() {
         <div className="min-h-[54vh] flex-1 overflow-hidden rounded-[32px] border border-[var(--cl-border)] bg-[var(--cl-surface)] shadow-[0_28px_90px_rgba(122,91,62,0.12)] backdrop-blur-xl">
           <TrunkChat
             draft={draft}
-            events={events}
+            events={detailEvents}
             onDraftChange={setDraft}
             onSubmitMission={handleSubmitMission}
+            onToggleDetail={() => setShowDetail(current => !current)}
             selectedTask={selectedTask}
+            showDetail={showDetail}
+            showDetailToggle={Boolean(selectedTask)}
             submitting={submitting}
-            synapses={synapses}
           />
         </div>
 
-        <DetailPanel
-          draft={draft}
-          events={events}
-          selectedTask={selectedTask}
-          synapses={synapses}
-        />
+        {showDetail ? (
+          <DetailPanel
+            draft={draft}
+            events={detailEvents}
+            selectedTask={selectedTask}
+            synapses={synapses}
+          />
+        ) : null}
       </div>
     </div>
   )
@@ -190,4 +250,14 @@ function deriveTitle(message: string) {
   const firstLine = message.split('\n').find(line => line.trim())?.trim() ?? message.trim()
   if (firstLine.length <= 62) return firstLine
   return `${firstLine.slice(0, 62).trimEnd()}...`
+}
+
+function matchesTaskEvent(task: Task, event: BusEvent) {
+  if (event.task_id && event.task_id === task.id) return true
+  if (event.trace_id && task.trace_id && event.trace_id === task.trace_id) return true
+
+  const payload = event.payload ?? {}
+  return payload.task_id === task.id
+    || payload.task_uuid === task.task_uuid
+    || payload.trace_id === task.trace_id
 }

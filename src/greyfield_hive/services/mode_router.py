@@ -12,7 +12,7 @@ from loguru import logger
 
 from greyfield_hive.models.task import ExecutionMode, TaskState
 from greyfield_hive.services.event_bus import get_event_bus, TOPIC_TASK_DISPATCH
-from greyfield_hive.services.execution_events import publish_stage_event
+from greyfield_hive.services.execution_events import publish_stage_event, publish_task_event
 
 
 class ModeRouter:
@@ -47,10 +47,46 @@ class ModeRouter:
         )
 
         if mode == ExecutionMode.Trial:
+            await self._save_route_meta(
+                task,
+                mode="trial",
+                target="trial",
+                reason="该任务进入对比评审模式，会并行比较多个候选执行者的结果。",
+                split_plan=[
+                    {"type": "candidate", "synapse": candidate}
+                    for candidate in meta.get("trial_candidates", ["code-expert", "research-analyst"])
+                ],
+            )
             success = await self._route_trial(task_id, message, meta, trace_id)
         elif mode == ExecutionMode.Chain:
+            await self._save_route_meta(
+                task,
+                mode="chain",
+                target="chain",
+                reason="该任务进入串行协作模式，前一阶段输出会成为下一阶段输入。",
+                split_plan=[
+                    {"type": "stage", "order": index + 1, "synapse": synapse}
+                    for index, synapse in enumerate(meta.get("chain_stages", ["code-expert"]))
+                ],
+            )
             success = await self._route_chain(task_id, message, meta, trace_id)
         elif mode == ExecutionMode.Swarm:
+            await self._save_route_meta(
+                task,
+                mode="swarm",
+                target="swarm",
+                reason="该任务进入并行协作模式，会拆成多个相对独立的执行单元同时推进。",
+                split_plan=[
+                    {
+                        "type": "unit",
+                        "order": index + 1,
+                        "synapse": unit.get("synapse", "code-expert"),
+                        "message": unit.get("message", message),
+                    }
+                    for index, unit in enumerate(meta.get("swarm_units") or [{"synapse": "code-expert", "message": message}])
+                    if isinstance(unit, dict)
+                ],
+            )
             success = await self._route_swarm(task_id, message, meta, trace_id)
         else:
             await self._route_solo(task, trace_id, success_state)
@@ -75,20 +111,34 @@ class ModeRouter:
     async def _route_solo(self, task, trace_id: str, success_state: TaskState) -> None:
         """Solo: 派发给 assignee_synapse 或默认 code-expert，执行后推进到 Executing"""
         synapse = task.assignee_synapse or "code-expert"
-        await self._bus.publish(
+        reason = (
+            f"任务按单线执行推进，明确指定由 {synapse} 处理。"
+            if task.assignee_synapse
+            else "任务按单线执行推进，未显式指定执行者时默认交给代码专家。"
+        )
+        await self._save_route_meta(
+            task,
+            mode="solo",
+            target=synapse,
+            reason=reason,
+            split_plan=[],
+            selected_synapse=synapse,
+        )
+        await publish_task_event(
+            self._bus,
             topic=TOPIC_TASK_DISPATCH,
             trace_id=trace_id,
             event_type="task.dispatch.request",
             producer="mode-router",
+            task_id=task.id,
             payload={
-                "task_id": task.id,
                 "synapse": synapse,
                 "message": task.description or task.title,
                 "domain": "general",
                 "next_state": success_state.value,
             },
         )
-        logger.info(f"[ModeRouter] Solo → {synapse} → next={TaskState.Consolidating.value}")
+        logger.info(f"[ModeRouter] Solo → {synapse} → next={success_state.value}")
 
     @staticmethod
     def _success_state(meta: dict) -> TaskState:
@@ -135,3 +185,23 @@ class ModeRouter:
         svc = SwarmRunnerService(self._db)
         result = await svc.run(task_id=task_id, units=units, trace_id=trace_id)
         return result.all_success
+
+    async def _save_route_meta(
+        self,
+        task,
+        *,
+        mode: str,
+        target: str,
+        reason: str,
+        split_plan: list[dict],
+        selected_synapse: str | None = None,
+    ) -> None:
+        meta = dict(task.meta or {})
+        meta["route_mode"] = mode
+        meta["route_target"] = target
+        meta["route_reason"] = reason
+        meta["split_plan"] = split_plan
+        if selected_synapse:
+            meta["selected_synapse"] = selected_synapse
+        task.meta = meta
+        await self._db.commit()
