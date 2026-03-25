@@ -30,6 +30,7 @@ from greyfield_hive.services.event_bus import (
     TOPIC_TASK_DISPATCH,
     TOPIC_TASK_DELETED,
 )
+from greyfield_hive.services.execution_events import publish_task_event
 
 
 class InvalidTransitionError(Exception):
@@ -318,12 +319,14 @@ class TaskService:
         task.assignee_synapse = target_synapse
         await self.db.commit()
 
-        await self.bus.publish(
+        await publish_task_event(
+            self.bus,
             topic=TOPIC_TASK_DISPATCH,
             trace_id=task.trace_id,
             event_type="task.dispatch.request",
             producer="task_service",
-            payload={"task_id": task_id, "synapse": target_synapse, "message": message},
+            task_id=task_id,
+            payload={"synapse": target_synapse, "message": message},
         )
 
     # ── 进度 / Todo ───────────────────────────────────────

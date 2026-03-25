@@ -19,7 +19,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.10+-blue?style=flat-square&logo=python&logoColor=white" alt="Python">
-  <img src="https://img.shields.io/badge/OpenClaw-Required-orange?style=flat-square" alt="OpenClaw">
+  <img src="https://img.shields.io/badge/Adapter-Codex%20%2F%20Mock-orange?style=flat-square" alt="Adapter">
   <img src="https://img.shields.io/badge/Modes-Solo_/_Hive-8B5CF6?style=flat-square" alt="Dual Mode">
   <img src="https://img.shields.io/badge/Evolution-Biomass_Driven-22C55E?style=flat-square" alt="Biomass Evolution">
   <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License">
@@ -31,15 +31,23 @@
 
 ## 这是什么？
 
-**Tyranid Hive** 是一个多 Agent 编排框架，设计上有两个核心主张：
+**Tyranid Hive** 是一个受泰伦虫族 / 异虫启发的多 Agent 编排框架。  
+这个仓库当前同时承担两层角色：
+
+- 上层是愿景文档：描述 Hive 想成为怎样的系统
+- 下层是可运行原型：已经具备任务流转、网页控制台、Codex 执行链、状态机和基础多模式入口
+
+这份 README 保留愿景表达，但会把当前进度、启动方式和界面说明写清楚，不再把“理想形态”和“已经落地的部分”混在一起。
+
+### 核心主张
 
 **主张一：正确的默认态是单主脑，不是多 Agent。**
 
-绝大多数任务（搜索、问答、工具调用链）根本不需要多 Agent 协调——加多个 Agent 只会增加延迟和出错率。Hive 默认以单主脑直接完成任务，只有在满足明确条件时才升级到虫群模式。
+绝大多数任务并不需要多 Agent 协调。Hive 默认以单主脑直接完成任务，只有在满足明确条件时才升级到虫群模式。
 
 **主张二：Submind 是域内 CEO，不是领域专家工具人。**
 
-传统多 Agent 框架把每个 Agent 设计成"只懂一件事"的专家，跨域问题必须上报"协调者"中转。Hive 的 Submind 有完整的推理能力（能读懂全局），只是执行边界在自己的领域——遇到跨域问题直接 @对方 Submind 协商，主脑不做翻译官。
+传统多 Agent 框架把每个 Agent 设计成“只懂一件事”的专家，跨域问题必须经由协调者中转。Hive 希望 Submind 有完整的全局理解能力，只在执行边界上受限，而不是在认知能力上受限。
 
 ```
 用户输入
@@ -50,6 +58,23 @@
   ├─ 线性依赖的系统重构     →  Chain Mode（串行链，精裁 context）
   └─ 完全独立的批量任务     →  Swarm Mode（并发 Unit 池）
 ```
+
+### 当前项目状态（2026-03-24）
+
+当前仓库已经不是“只有概念，没有可运行界面”的状态，已有这些可直接体验的部分：
+
+- FastAPI 后端、SQLite 存储、WebSocket 事件推送已可用
+- 网页端已切成 chat-first 三栏任务台，界面支持中文
+- `/api/missions` 已接到执行链，可从网页直接发起任务
+- Windows 已提供 [一键拉起.bat](一键拉起.bat)，能直接启动服务
+- Windows 下 `codex.CMD` 长参数导致的 `WinError 5` 已修复
+- 缺关键信息的任务会进入 `WaitingInput / 等待补充`，不再错误推进到执行态
+
+也需要明确：**当前仍是原型，不是完整产品。**
+
+- 愿景里很多演化、进化、基因市场、多 Hive 协作，仍然属于设计目标
+- UI 已经能用，但还在持续收敛
+- 多模式入口已经打通，但不同模式的完成度并不完全一致
 
 ---
 
@@ -576,78 +601,92 @@ pip install -e ".[dev]"
 curl -fsSL https://raw.githubusercontent.com/zuiho-kai/tyranid-hive/master/install.sh | bash
 ```
 
-### 2. 启动服务
+### 2. Windows 一键启动（推荐）
 
-```bash
-# 直接调用 Codex 作为执行层
-# PowerShell:
-$env:HIVE_ADAPTER="codex"
-python start.py          # 默认 http://localhost:8765
+在仓库根目录直接运行：
 
-# 或 Docker
-docker-compose up        # Docker 一键启动
+```bat
+一键拉起.bat
 ```
 
-### 3. 先验证 Codex CLI 可用
+脚本会自动：
+
+- 选择可用的 Python 3.10+
+- 设置 `PYTHONPATH`、`HIVE_PORT`、`HIVE_DB_PATH`
+- 优先使用 `codex` 作为执行层
+- 如果本机没有 `codex`，自动回退到 `mock`
+- 打开浏览器到 `http://127.0.0.1:8765/dashboard`
+
+### 3. 手动启动服务
+
+```bash
+# PowerShell
+$env:HIVE_ADAPTER="codex"
+python start.py
+
+# 或 Docker
+docker-compose up
+```
+
+默认地址：
+
+- `http://127.0.0.1:8765/`
+- `http://127.0.0.1:8765/dashboard`
+
+### 4. 验证执行层
 
 ```bash
 python test_codex_env.py
 ```
 
-看到 `hello from codex` 即表示网页端后续会直接调用真实 Codex，而不是 mock。
+看到 `hello from codex`，说明当前环境可以直接调用真实 Codex。
 
-### 4. 用网页端直接下达任务（推荐）
+### 5. 用网页端直接下达任务（推荐）
 
 启动后打开：
 
-- `http://localhost:8765/`
-- `http://localhost:8765/dashboard`
+- `http://127.0.0.1:8765/`
+- `http://127.0.0.1:8765/dashboard`
 
-新的网页控制台是 chat-first 形态，参考 `clowder-ai`：
+当前网页控制台是 chat-first 形态：
 
-- 左侧：频道和任务轨道
-- 中间：直接输入任务并选择 `Auto / Solo / Trial / Chain / Swarm`
-- 右侧：当前任务的 `mode / state / stage / progress / latest event`
+- 左侧：任务列表、搜索、任务状态概览
+- 中间：任务主对话和新任务输入框
+- 右侧：当前任务状态、阻塞项、最近更新
+
+默认使用最简界面；复杂模式和代理指定已收进“高级选项”。
 
 网页提任务时会直接调用 `/api/missions`，并把显式模式配置一起下发给后端：
 
-- `Solo`：单执行者直接跑
-- `Trial`：双路赛马
-- `Chain`：串行阶段执行
-- `Swarm`：并行 unit 执行
+- `auto`：默认自动路由
+- `solo`：单代理执行
+- `trial`：双路对比
+- `chain`：串行协作
+- `swarm`：并行协作
 
 任务提交后，界面里可以实时看到：
 
-- 当前运行到哪个 stage
-- 当前 state / mode
-- 中间 transcript 中的过程消息
-- Inspector 中的结构化事件和 mode config
+- 当前状态
+- 当前阶段
+- 主对话里的进展输出
+- 阻塞项和最近更新
 
 ### 当前进度（2026-03-24）
 
-- clowder 风格网页控制台已经替换原来的后台式任务入口
-- 网页端现在直接调用真实 Codex，不走 mock
-- `solo / trial / chain / swarm` 都可以从网页端显式触发
-- 前端已经补齐任务过程细节，可看到 `mode / state / stage / progress / latest event`
-- 新的 `/api/missions` 入口已接到执行链，并针对网页任务默认跳过冗长的 consolidation 收口
-- 已有真实浏览器 E2E：`python test_e2e.py`
+- 任务状态机已经补上 `WaitingInput / 等待补充`
+- Windows 下的执行链兼容问题已修复，不再因为长 prompt 触发 `WinError 5`
+- 前端主界面已重做为中文三栏任务台，不再暴露一堆内部流程术语
+- 一键启动脚本已提供，适合本地直接拉起
 - 已有真实 Codex 烟测：`python test_codex_env.py`
+- 已有真实浏览器 E2E：`python test_e2e.py`
 
 ### 界面截图
 
-首页 Mission Console：
+当前控制台总览：
 
-![Mission Console](docs/screenshots/mission-console-overview.png)
+![当前控制台](docs/screenshots/dashboard-overview.png)
 
-任务运行中（可见 stage、transcript、inspector）：
-
-![Live Mission](docs/screenshots/solo-mission-live.png)
-
-Swarm 模式配置：
-
-![Swarm Composer](docs/screenshots/swarm-composer.png)
-
-### 5. API / CLI 方式（高级用法）
+### 6. API / CLI 方式（高级用法）
 
 ```bash
 # CLI 方式
@@ -673,7 +712,7 @@ curl -X POST http://localhost:8765/api/missions \
   -d '{"title":"网页 demo 任务","description":"Reply with exactly WEB_DEMO_OK","mode":"solo","priority":"high"}'
 ```
 
-### 6. 主脑智能分析（需要 ANTHROPIC_API_KEY）
+### 7. 主脑智能分析（需要 ANTHROPIC_API_KEY）
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
@@ -683,11 +722,11 @@ hive tasks analyze <task_id>
 
 主脑会自动拆解子任务、识别风险、推荐状态，并注入历史经验上下文。
 
-### 7. 打开 Dashboard
+### 8. 打开 Dashboard
 
-访问 `http://localhost:8765/` 或 `http://localhost:8765/dashboard` — 实时查看任务状态、事件流、基因库统计。
+访问 `http://127.0.0.1:8765/` 或 `http://127.0.0.1:8765/dashboard`。
 
-### 8. 跑完整网页 demo 验证
+### 9. 跑完整网页 demo 验证
 
 ```bash
 python test_e2e.py

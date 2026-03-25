@@ -18,6 +18,7 @@ class TaskState(str, enum.Enum):
     Spawning     = "Spawning"      # 生产中：已派发给小主脑/工作组
     Executing    = "Executing"     # 执行中：Unit 正在运行
     Consolidating = "Consolidating"  # 巩固中：进化大师复盘
+    WaitingInput = "WaitingInput"    # 等待用户补充关键信息
     Complete     = "Complete"      # 完成（终态）
     Dormant      = "Dormant"       # 休眠：阻塞/等待
     Cancelled    = "Cancelled"     # 取消（终态）
@@ -26,13 +27,14 @@ class TaskState(str, enum.Enum):
 TERMINAL_STATES = {TaskState.Complete, TaskState.Cancelled}
 
 STATE_TRANSITIONS: dict[TaskState, set[TaskState]] = {
-    TaskState.Incubating:    {TaskState.Planning, TaskState.Cancelled},
-    TaskState.Planning:      {TaskState.Reviewing, TaskState.Dormant, TaskState.Cancelled},
-    TaskState.Reviewing:     {TaskState.Spawning, TaskState.Planning, TaskState.Cancelled},
-    TaskState.Spawning:      {TaskState.Executing, TaskState.Dormant, TaskState.Cancelled},
-    TaskState.Executing:     {TaskState.Consolidating, TaskState.Complete, TaskState.Dormant, TaskState.Cancelled},
+    TaskState.Incubating:    {TaskState.Planning, TaskState.Spawning, TaskState.WaitingInput, TaskState.Dormant, TaskState.Cancelled},
+    TaskState.Planning:      {TaskState.Reviewing, TaskState.Spawning, TaskState.WaitingInput, TaskState.Dormant, TaskState.Cancelled},
+    TaskState.Reviewing:     {TaskState.Spawning, TaskState.Planning, TaskState.WaitingInput, TaskState.Cancelled},
+    TaskState.Spawning:      {TaskState.Executing, TaskState.WaitingInput, TaskState.Dormant, TaskState.Cancelled},
+    TaskState.Executing:     {TaskState.Consolidating, TaskState.Complete, TaskState.WaitingInput, TaskState.Dormant, TaskState.Cancelled},
     TaskState.Consolidating: {TaskState.Complete, TaskState.Executing, TaskState.Cancelled},
-    TaskState.Dormant:       {TaskState.Incubating, TaskState.Planning, TaskState.Reviewing, TaskState.Spawning, TaskState.Executing},
+    TaskState.WaitingInput:  {TaskState.Incubating, TaskState.Planning, TaskState.Reviewing, TaskState.Spawning, TaskState.Executing, TaskState.Cancelled},
+    TaskState.Dormant:       {TaskState.Incubating, TaskState.Planning, TaskState.Reviewing, TaskState.Spawning, TaskState.Executing, TaskState.WaitingInput},
 }
 
 # 任务状态 → 默认派发目标（小主脑 ID）

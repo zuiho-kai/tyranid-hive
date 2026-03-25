@@ -231,8 +231,12 @@ class CodexAdapter:
 
         # Windows 上 .CMD 文件需要通过 cmd.exe /c 调用
         codex_bin = shutil.which("codex") or "codex"
-        base_args = ["exec", "--dangerously-bypass-approvals-and-sandbox",
-                     "--skip-git-repo-check", message]
+        base_args = [
+            "exec",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--skip-git-repo-check",
+            "-",
+        ]
         if codex_bin.upper().endswith(".CMD"):
             cmd_args = ["cmd.exe", "/c", codex_bin] + base_args
         else:
@@ -241,6 +245,7 @@ class CodexAdapter:
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd_args,
+                stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=env,
@@ -248,7 +253,7 @@ class CodexAdapter:
             )
             try:
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    proc.communicate(), timeout=timeout
+                    proc.communicate(message.encode("utf-8")), timeout=timeout
                 )
             except asyncio.TimeoutError:
                 try:

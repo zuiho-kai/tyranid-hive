@@ -490,6 +490,7 @@ async def analyze_task(task_id: str, db=Depends(get_db)):
         f"领域：{result.domain}\n"
         f"Todos：{len(result.todos)} 条\n"
         f"风险：{'; '.join(result.risks) or '无'}\n"
+        f"阻塞：{'; '.join(result.blockers) or '无'}\n"
         f"建议状态：{result.recommended_state}"
     )
     task = await svc.add_progress(task_id, "overmind", summary_content)
@@ -501,6 +502,7 @@ async def analyze_task(task_id: str, db=Depends(get_db)):
             "domain":              result.domain,
             "todos":               result.todos,
             "risks":               result.risks,
+            "blockers":            result.blockers,
             "recommended_state":   result.recommended_state,
         },
     }

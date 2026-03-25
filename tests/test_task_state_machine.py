@@ -17,6 +17,7 @@ def test_terminal_states_no_outgoing():
 
 def test_valid_transitions():
     assert TaskState.Planning in STATE_TRANSITIONS[TaskState.Incubating]
+    assert TaskState.WaitingInput in STATE_TRANSITIONS[TaskState.Incubating]
     assert TaskState.Executing in STATE_TRANSITIONS[TaskState.Spawning]
     assert TaskState.Complete in STATE_TRANSITIONS[TaskState.Executing]
 
@@ -29,3 +30,8 @@ def test_invalid_transition_not_in_map():
 def test_dormant_can_recover():
     # 阻塞态可以恢复到多个中间态
     assert len(STATE_TRANSITIONS[TaskState.Dormant]) >= 3
+
+
+def test_waiting_input_can_resume():
+    assert TaskState.WaitingInput in STATE_TRANSITIONS
+    assert TaskState.Planning in STATE_TRANSITIONS[TaskState.WaitingInput]

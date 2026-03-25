@@ -29,6 +29,7 @@ def _mock_overmind_result(
     summary="分析完毕",
     todos=None,
     risks=None,
+    blockers=None,
     domain="coding",
     recommended_state="Planning",
 ):
@@ -37,6 +38,7 @@ def _mock_overmind_result(
         summary=summary,
         todos=todos if todos is not None else ["子任务1", "子任务2"],
         risks=risks if risks is not None else ["风险A"],
+        blockers=blockers if blockers is not None else [],
         domain=domain,
         recommended_state=recommended_state,
     )
