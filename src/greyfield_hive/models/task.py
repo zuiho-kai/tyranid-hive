@@ -72,6 +72,9 @@ class Task(Base):
 
     # 派发目标（小主脑 ID 或领域标签）
     assignee_synapse = Column(String(64), nullable=True)
+    current_owner_lifeform_id = Column(String(64), ForeignKey("lifeforms.id", ondelete="SET NULL"), nullable=True)
+    entry_lifeform_id = Column(String(64), ForeignKey("lifeforms.id", ondelete="SET NULL"), nullable=True)
+    last_handoff_id = Column(String(64), nullable=True)
     creator          = Column(String(64), default="user")
 
     # 审计链：每次状态转换都追加一条记录
@@ -96,6 +99,7 @@ class Task(Base):
         Index("ix_tasks_state", "state"),
         Index("ix_tasks_updated_at", "updated_at"),
         Index("ix_tasks_parent_id", "parent_id"),
+        Index("ix_tasks_current_owner_lifeform_id", "current_owner_lifeform_id"),
     )
 
     def append_flow(self, from_state: Optional[str], to_state: str, agent: str, reason: str = "") -> None:

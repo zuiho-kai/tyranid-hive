@@ -2,12 +2,16 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'rea
 import {
   createMission,
   fetchEvents,
+  fetchLifeforms,
   fetchStats,
   fetchSynapses,
+  fetchTaskHandoffs,
   fetchTasks,
 } from './api'
 import type {
   BusEvent,
+  Handoff,
+  Lifeform,
   MissionMode,
   MissionRequest,
   MissionUnitInput,
@@ -38,7 +42,7 @@ const DEFAULT_DRAFT: MissionDraft = {
   trialCandidates: ['code-expert', 'research-analyst'],
   chainStages: ['code-expert', 'research-analyst'],
   swarmUnits: [
-    { synapse: 'research-analyst', message: '补充资料与背景信息' },
+    { synapse: 'research-analyst', message: '补充资料和背景信息' },
     { synapse: 'code-expert', message: '完成主要实现或修复' },
   ],
 }
@@ -48,9 +52,11 @@ const DONE_STATES = new Set(['Complete', 'Cancelled'])
 export default function App() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [synapses, setSynapses] = useState<Synapse[]>([])
+  const [lifeforms, setLifeforms] = useState<Lifeform[]>([])
   const [stats, setStats] = useState<TaskStats | null>(null)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [selectedTaskEvents, setSelectedTaskEvents] = useState<BusEvent[]>([])
+  const [selectedTaskHandoffs, setSelectedTaskHandoffs] = useState<Handoff[]>([])
   const [draft, setDraft] = useState<MissionDraft>(DEFAULT_DRAFT)
   const [search, setSearch] = useState('')
   const [taskFilter, setTaskFilter] = useState<TaskFilterKey>('active')
@@ -78,22 +84,31 @@ export default function App() {
   }, [deferredSearch])
 
   useEffect(() => {
-    void fetchSynapses().then(setSynapses)
+    void Promise.all([fetchSynapses(), fetchLifeforms()]).then(([nextSynapses, nextLifeforms]) => {
+      setSynapses(nextSynapses)
+      setLifeforms(nextLifeforms)
+    })
     void refreshTasks()
   }, [refreshTasks])
 
-  const refreshSelectedEvents = useCallback(async (taskId: string | null) => {
+  const refreshSelectedContext = useCallback(async (taskId: string | null) => {
     if (!taskId) {
       setSelectedTaskEvents([])
+      setSelectedTaskHandoffs([])
       return
     }
-    const nextEvents = await fetchEvents(taskId)
+
+    const [nextEvents, nextHandoffs] = await Promise.all([
+      fetchEvents(taskId),
+      fetchTaskHandoffs(taskId),
+    ])
     setSelectedTaskEvents(nextEvents)
+    setSelectedTaskHandoffs(nextHandoffs)
   }, [])
 
   useEffect(() => {
-    void refreshSelectedEvents(selectedTaskId)
-  }, [refreshSelectedEvents, selectedTaskId])
+    void refreshSelectedContext(selectedTaskId)
+  }, [refreshSelectedContext, selectedTaskId])
 
   const selectedTask = useMemo(
     () => tasks.find(task => task.id === selectedTaskId) ?? null,
@@ -105,9 +120,9 @@ export default function App() {
       void refreshTasks()
     }
     if (selectedTask && matchesTaskEvent(selectedTask, event)) {
-      void refreshSelectedEvents(selectedTask.id)
+      void refreshSelectedContext(selectedTask.id)
     }
-  }, [refreshSelectedEvents, refreshTasks, selectedTask])
+  }, [refreshSelectedContext, refreshTasks, selectedTask])
 
   const { connected, events } = useHiveWebSocket(handleWsEvent)
 
@@ -196,6 +211,8 @@ export default function App() {
           <TrunkChat
             draft={draft}
             events={detailEvents}
+            handoffs={selectedTaskHandoffs}
+            lifeforms={lifeforms}
             onDraftChange={setDraft}
             onSubmitMission={handleSubmitMission}
             onToggleDetail={() => setShowDetail(current => !current)}
@@ -210,6 +227,8 @@ export default function App() {
           <DetailPanel
             draft={draft}
             events={detailEvents}
+            handoffs={selectedTaskHandoffs}
+            lifeforms={lifeforms}
             selectedTask={selectedTask}
             synapses={synapses}
           />

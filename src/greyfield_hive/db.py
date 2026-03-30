@@ -16,6 +16,7 @@ PostgreSQL 连接池参数（仅 PostgreSQL 生效）：
 import os
 from pathlib import Path
 
+from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 
@@ -68,9 +69,33 @@ async def init_db() -> None:
     """创建所有表（若不存在）。生产 PostgreSQL 建议改用 Alembic 管理 DDL。"""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_bootstrap_compat_schema)
 
 
 async def get_db() -> AsyncSession:
     """FastAPI Depends 注入"""
     async with SessionLocal() as session:
         yield session
+
+
+def _bootstrap_compat_schema(sync_conn) -> None:
+    """Apply lightweight additive changes for existing local databases."""
+    inspector = inspect(sync_conn)
+    if "tasks" not in inspector.get_table_names():
+        return
+
+    existing_columns = {item["name"] for item in inspector.get_columns("tasks")}
+    statements: list[str] = []
+    if "current_owner_lifeform_id" not in existing_columns:
+        statements.append("ALTER TABLE tasks ADD COLUMN current_owner_lifeform_id VARCHAR(64)")
+    if "entry_lifeform_id" not in existing_columns:
+        statements.append("ALTER TABLE tasks ADD COLUMN entry_lifeform_id VARCHAR(64)")
+    if "last_handoff_id" not in existing_columns:
+        statements.append("ALTER TABLE tasks ADD COLUMN last_handoff_id VARCHAR(64)")
+
+    for statement in statements:
+        sync_conn.execute(text(statement))
+
+    existing_indexes = {item["name"] for item in inspector.get_indexes("tasks")}
+    if "ix_tasks_current_owner_lifeform_id" not in existing_indexes:
+        sync_conn.execute(text("CREATE INDEX IF NOT EXISTS ix_tasks_current_owner_lifeform_id ON tasks (current_owner_lifeform_id)"))

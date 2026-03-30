@@ -3,6 +3,7 @@ import type { Task, TaskStats } from '../api'
 import type { TaskFilterKey } from '../App'
 import {
   displayTaskDescription,
+  displayTaskOwner,
   displayTaskTitle,
   formatLifecycleState,
 } from '../utils/display'
@@ -48,14 +49,14 @@ export default function ChannelSidebar({
       <div className="border-b border-[var(--cl-border)] px-5 pb-5 pt-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="text-[11px] uppercase tracking-[0.24em] text-[var(--cl-warning)]">灰风</div>
+            <div className="text-[11px] uppercase tracking-[0.24em] text-[var(--cl-warning)]">虫巢</div>
             <h1 className="mt-2 text-[28px] font-semibold tracking-[-0.04em] text-[var(--cl-text)]">任务台</h1>
             <p className="mt-2 text-sm leading-6 text-[var(--cl-muted)]">
-              先找到任务，再看对话。
+              先找到任务，再看对话与细节。
             </p>
           </div>
           <div className="rounded-[22px] border border-[var(--cl-border)] bg-[var(--cl-panel-strong)] px-3 py-2 text-right">
-            <div className="text-[10px] uppercase tracking-[0.16em] text-[var(--cl-dim)]">代理</div>
+            <div className="text-[10px] uppercase tracking-[0.16em] text-[var(--cl-dim)]">执行核</div>
             <div className="mt-1 text-lg font-semibold text-[var(--cl-success)]">{synapseCount}</div>
           </div>
         </div>
@@ -145,7 +146,10 @@ export default function ChannelSidebar({
                       {description}
                     </div>
                   ) : null}
-                  <div className="mt-3 text-right text-[11px] text-[var(--cl-dim)]">{formatCompactTime(task.updated_at)}</div>
+                  <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-[var(--cl-dim)]">
+                    <span className="truncate">负责人：{displayTaskOwner(task)}</span>
+                    <span>{formatCompactTime(task.updated_at)}</span>
+                  </div>
                 </button>
               )
             })

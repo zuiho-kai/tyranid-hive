@@ -3,9 +3,13 @@
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
+from sqlalchemy import select
 
 from greyfield_hive.agents.overmind_agent import OvermindAgent
 from greyfield_hive.db import get_db
+from greyfield_hive.models.assignment import Assignment, AssignmentStatus
+from greyfield_hive.models.handoff import Handoff
+from greyfield_hive.models.lifeform import Lifeform
 from greyfield_hive.models.task import Task, TaskState
 from greyfield_hive.services.lessons_bank import LessonsBank
 from greyfield_hive.services.playbook_service import PlaybookService
@@ -102,7 +106,94 @@ class CleanupRequest(BaseModel):
     days: int = 30
 
 
-def _task_to_dict(task: Task) -> dict:
+def _lifeform_to_dict(item: Lifeform | None) -> Optional[dict]:
+    if not item:
+        return None
+    return {
+        "id": item.id,
+        "key": item.key,
+        "kind": item.kind.value if item.kind else None,
+        "name": item.name,
+        "display_name": item.display_name,
+        "persona_summary": item.persona_summary,
+        "lineage": item.lineage,
+        "status": item.status.value if item.status else None,
+        "backing_synapse": item.backing_synapse,
+    }
+
+
+def _assignment_to_dict(item: Assignment | None) -> Optional[dict]:
+    if not item:
+        return None
+    return {
+        "id": item.id,
+        "task_id": item.task_id,
+        "owner_lifeform_id": item.owner_lifeform_id,
+        "assigned_by_lifeform_id": item.assigned_by_lifeform_id,
+        "reason": item.reason,
+        "scope": item.scope,
+        "expected_output": item.expected_output,
+        "status": item.status.value if item.status else None,
+        "created_at": item.created_at.isoformat() if item.created_at else None,
+        "ended_at": item.ended_at.isoformat() if item.ended_at else None,
+    }
+
+
+def _handoff_to_dict(item: Handoff | None, lifeforms: dict[str, Lifeform] | None = None) -> Optional[dict]:
+    if not item:
+        return None
+    lifeforms = lifeforms or {}
+    return {
+        "id": item.id,
+        "task_id": item.task_id,
+        "from_lifeform_id": item.from_lifeform_id,
+        "to_lifeform_id": item.to_lifeform_id,
+        "reason": item.reason,
+        "scope": item.scope,
+        "expected_output": item.expected_output,
+        "return_to_lifeform_id": item.return_to_lifeform_id,
+        "created_at": item.created_at.isoformat() if item.created_at else None,
+        "from_lifeform": _lifeform_to_dict(lifeforms.get(item.from_lifeform_id)),
+        "to_lifeform": _lifeform_to_dict(lifeforms.get(item.to_lifeform_id)),
+        "return_to_lifeform": _lifeform_to_dict(lifeforms.get(item.return_to_lifeform_id)),
+    }
+
+
+async def _task_to_dict(task: Task, db) -> dict:
+    owner = entry = None
+    current_assignment = last_handoff = None
+    handoff_lifeforms: dict[str, Lifeform] = {}
+
+    lifeform_ids = [item for item in [task.current_owner_lifeform_id, task.entry_lifeform_id] if item]
+    if lifeform_ids:
+        result = await db.execute(select(Lifeform).where(Lifeform.id.in_(lifeform_ids)))
+        lifeforms = {item.id: item for item in result.scalars().all()}
+        owner = lifeforms.get(task.current_owner_lifeform_id)
+        entry = lifeforms.get(task.entry_lifeform_id)
+
+    result = await db.execute(
+        select(Assignment)
+        .where(Assignment.task_id == task.id, Assignment.status == AssignmentStatus.Active)
+        .order_by(Assignment.created_at.desc())
+    )
+    current_assignment = result.scalar_one_or_none()
+
+    if task.last_handoff_id:
+        result = await db.execute(select(Handoff).where(Handoff.id == task.last_handoff_id))
+        last_handoff = result.scalar_one_or_none()
+        handoff_ids = [
+            item
+            for item in [
+                last_handoff.from_lifeform_id if last_handoff else None,
+                last_handoff.to_lifeform_id if last_handoff else None,
+                last_handoff.return_to_lifeform_id if last_handoff else None,
+            ]
+            if item
+        ]
+        if handoff_ids:
+            result = await db.execute(select(Lifeform).where(Lifeform.id.in_(handoff_ids)))
+            handoff_lifeforms = {item.id: item for item in result.scalars().all()}
+
     return {
         "id":               task.id,
         "task_uuid":        task.task_uuid,
@@ -113,6 +204,9 @@ def _task_to_dict(task: Task) -> dict:
         "priority":         task.priority,
         "exec_mode":        task.exec_mode.value if task.exec_mode else None,
         "assignee_synapse": task.assignee_synapse,
+        "current_owner_lifeform_id": task.current_owner_lifeform_id,
+        "entry_lifeform_id": task.entry_lifeform_id,
+        "last_handoff_id": task.last_handoff_id,
         "creator":          task.creator,
         "flow_log":         task.flow_log or [],
         "progress_log":     task.progress_log or [],
@@ -121,6 +215,10 @@ def _task_to_dict(task: Task) -> dict:
         "parent_id":        task.parent_id,
         "depends_on":       task.depends_on or [],
         "meta":             task.meta or {},
+        "current_owner":    _lifeform_to_dict(owner),
+        "entry_lifeform":   _lifeform_to_dict(entry),
+        "current_assignment": _assignment_to_dict(current_assignment),
+        "last_handoff":     _handoff_to_dict(last_handoff, handoff_lifeforms),
         "created_at":       task.created_at.isoformat() if task.created_at else None,
         "updated_at":       task.updated_at.isoformat() if task.updated_at else None,
     }
@@ -145,7 +243,7 @@ async def create_task(body: CreateTaskRequest, db=Depends(get_db)):
         )
     except TaskNotFoundError as e:
         raise HTTPException(status_code=404, detail=f"任务不存在: {e}")
-    return _task_to_dict(task)
+    return await _task_to_dict(task, db)
 
 
 _VALID_SORT_BY = {"updated_at", "created_at", "priority", "state"}
@@ -185,7 +283,7 @@ async def list_tasks(
         label=label, parent_id=parent_id, root_only=root_only,
         sort_by=sort_by, order=order, limit=limit, offset=offset,
     )
-    return [_task_to_dict(t) for t in tasks]
+    return [await _task_to_dict(t, db) for t in tasks]
 
 
 @router.get("/stats")
@@ -269,7 +367,27 @@ async def get_task(task_id: str, db=Depends(get_db)):
         task = await svc.get_by_id(task_id)
     except TaskNotFoundError:
         raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
-    return _task_to_dict(task)
+    return await _task_to_dict(task, db)
+
+
+@router.get("/{task_id}/handoffs")
+async def get_task_handoffs(task_id: str, db=Depends(get_db)):
+    svc = TaskService(db)
+    try:
+        handoffs = await svc.list_handoffs(task_id)
+    except TaskNotFoundError:
+        raise HTTPException(status_code=404, detail=f"浠诲姟涓嶅瓨鍦? {task_id}")
+    lifeform_ids = {
+        lifeform_id
+        for item in handoffs
+        for lifeform_id in [item.from_lifeform_id, item.to_lifeform_id, item.return_to_lifeform_id]
+        if lifeform_id
+    }
+    lifeforms: dict[str, Lifeform] = {}
+    if lifeform_ids:
+        result = await db.execute(select(Lifeform).where(Lifeform.id.in_(lifeform_ids)))
+        lifeforms = {item.id: item for item in result.scalars().all()}
+    return [_handoff_to_dict(item, lifeforms) for item in handoffs]
 
 
 @router.get("/{task_id}/blocked")
@@ -304,7 +422,7 @@ async def get_task_children(task_id: str, db=Depends(get_db)):
         children = await svc.get_children(task_id)
     except TaskNotFoundError:
         raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
-    return [_task_to_dict(t) for t in children]
+    return [await _task_to_dict(t, db) for t in children]
 
 
 @router.post("/{task_id}/transition")
@@ -320,7 +438,7 @@ async def transition_task(task_id: str, body: TransitionRequest, db=Depends(get_
         raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
     except InvalidTransitionError as e:
         raise HTTPException(status_code=422, detail=str(e))
-    return _task_to_dict(task)
+    return await _task_to_dict(task, db)
 
 
 @router.post("/{task_id}/trial")
@@ -391,7 +509,7 @@ async def add_progress(task_id: str, body: ProgressRequest, db=Depends(get_db)):
         task = await svc.add_progress(task_id, body.agent, body.content)
     except TaskNotFoundError:
         raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
-    return _task_to_dict(task)
+    return await _task_to_dict(task, db)
 
 
 @router.patch("/{task_id}")
@@ -402,7 +520,7 @@ async def patch_task(task_id: str, body: PatchTaskRequest, db=Depends(get_db)):
         task = await svc.patch_task(task_id, **body.model_dump(exclude_none=True))
     except TaskNotFoundError:
         raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
-    return _task_to_dict(task)
+    return await _task_to_dict(task, db)
 
 
 @router.put("/{task_id}/todos")
@@ -412,7 +530,7 @@ async def update_todos(task_id: str, body: TodosRequest, db=Depends(get_db)):
         task = await svc.update_todos(task_id, body.todos)
     except TaskNotFoundError:
         raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
-    return _task_to_dict(task)
+    return await _task_to_dict(task, db)
 
 
 @router.post("/{task_id}/todos", status_code=201)
@@ -423,7 +541,7 @@ async def append_todo(task_id: str, body: AppendTodoRequest, db=Depends(get_db))
         task = await svc.append_todo(task_id, body.title)
     except TaskNotFoundError:
         raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
-    return _task_to_dict(task)
+    return await _task_to_dict(task, db)
 
 
 @router.patch("/{task_id}/todos/{index}")
@@ -436,7 +554,7 @@ async def toggle_todo(task_id: str, index: int, db=Depends(get_db)):
         raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
     except IndexError as e:
         raise HTTPException(status_code=422, detail=str(e))
-    return _task_to_dict(task)
+    return await _task_to_dict(task, db)
 
 
 @router.post("/{task_id}/analyze")
@@ -496,7 +614,7 @@ async def analyze_task(task_id: str, db=Depends(get_db)):
     task = await svc.add_progress(task_id, "overmind", summary_content)
 
     return {
-        "task":     _task_to_dict(task),
+        "task":     await _task_to_dict(task, db),
         "analysis": {
             "summary":             result.summary,
             "domain":              result.domain,

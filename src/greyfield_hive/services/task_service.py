@@ -19,8 +19,11 @@ from loguru import logger
 from sqlalchemy import select, func, cast as sa_cast, Text as sa_Text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from greyfield_hive.models.assignment import Assignment, AssignmentStatus
+from greyfield_hive.models.handoff import Handoff
 from greyfield_hive.models.task import Task, TaskState, STATE_TRANSITIONS, TERMINAL_STATES
 from greyfield_hive.models.event import HiveEvent
+from greyfield_hive.services.lifeform_service import LifeformService
 from greyfield_hive.services.event_bus import (
     get_event_bus,
     TOPIC_TASK_CREATED,
@@ -60,6 +63,8 @@ class TaskService:
         parent_id: Optional[str] = None,
         depends_on: Optional[list] = None,
     ) -> Task:
+        lifeforms = LifeformService(self.db)
+        sovereign = await lifeforms.get_sovereign()
         # 验证父任务存在
         if parent_id is not None:
             await self.get_by_id(parent_id)   # raises TaskNotFoundError if missing
@@ -72,6 +77,8 @@ class TaskService:
             priority=priority,
             creator=creator,
             assignee_synapse=assignee_synapse,
+            current_owner_lifeform_id=sovereign.id if sovereign else None,
+            entry_lifeform_id=sovereign.id if sovereign else None,
             meta=meta or {},
             labels=labels or [],
             parent_id=parent_id,
@@ -80,6 +87,20 @@ class TaskService:
         task.append_flow(None, TaskState.Incubating.value, "system", "任务孵化")
         self.db.add(task)
         await self.db.flush()
+
+        if sovereign:
+            self.db.add(
+                Assignment(
+                    task_id=task.id,
+                    owner_lifeform_id=sovereign.id,
+                    assigned_by_lifeform_id=sovereign.id,
+                    reason="新任务默认由虫群主宰接球。",
+                    scope="完成初步判断并决定是否需要委派。",
+                    expected_output="给出下一步行动、补充信息请求或最终结果。",
+                    status=AssignmentStatus.Active,
+                )
+            )
+            await self.db.flush()
 
         await self._persist_event(
             trace_id=task.trace_id,
@@ -317,6 +338,18 @@ class TaskService:
     ) -> None:
         task = await self.get_by_id(task_id)
         task.assignee_synapse = target_synapse
+        lifeforms = LifeformService(self.db)
+        target_lifeform = await lifeforms.get_by_backing_synapse(target_synapse)
+        if target_lifeform and task.current_owner_lifeform_id != target_lifeform.id:
+            await self.handoff(
+                task_id=task_id,
+                from_lifeform_id=task.current_owner_lifeform_id,
+                to_lifeform_id=target_lifeform.id,
+                reason=f"任务派发给 {target_lifeform.display_name} 执行。",
+                scope=message or task.description or task.title,
+                expected_output="推进当前责任范围内的任务处理并返回可收束结果。",
+                return_to_lifeform_id=task.entry_lifeform_id or task.current_owner_lifeform_id,
+            )
         await self.db.commit()
 
         await publish_task_event(
@@ -330,6 +363,83 @@ class TaskService:
         )
 
     # ── 进度 / Todo ───────────────────────────────────────
+
+    async def list_handoffs(self, task_id: str) -> list[Handoff]:
+        await self.get_by_id(task_id)
+        result = await self.db.execute(
+            select(Handoff).where(Handoff.task_id == task_id).order_by(Handoff.created_at)
+        )
+        return list(result.scalars().all())
+
+    async def get_active_assignment(self, task_id: str) -> Optional[Assignment]:
+        result = await self.db.execute(
+            select(Assignment)
+            .where(Assignment.task_id == task_id, Assignment.status == AssignmentStatus.Active)
+            .order_by(Assignment.created_at.desc())
+        )
+        return result.scalar_one_or_none()
+
+    async def assign_lifeform(
+        self,
+        task_id: str,
+        owner_lifeform_id: str,
+        assigned_by_lifeform_id: Optional[str],
+        reason: str = "",
+        scope: str = "",
+        expected_output: str = "",
+    ) -> Assignment:
+        task = await self.get_by_id(task_id)
+        existing = await self.get_active_assignment(task_id)
+        if existing:
+            existing.status = AssignmentStatus.Completed
+            existing.ended_at = datetime.now(timezone.utc)
+        assignment = Assignment(
+            task_id=task_id,
+            owner_lifeform_id=owner_lifeform_id,
+            assigned_by_lifeform_id=assigned_by_lifeform_id,
+            reason=reason,
+            scope=scope,
+            expected_output=expected_output,
+            status=AssignmentStatus.Active,
+        )
+        self.db.add(assignment)
+        task.current_owner_lifeform_id = owner_lifeform_id
+        task.updated_at = datetime.now(timezone.utc)
+        await self.db.flush()
+        return assignment
+
+    async def handoff(
+        self,
+        task_id: str,
+        from_lifeform_id: Optional[str],
+        to_lifeform_id: str,
+        reason: str = "",
+        scope: str = "",
+        expected_output: str = "",
+        return_to_lifeform_id: Optional[str] = None,
+    ) -> Handoff:
+        task = await self.get_by_id(task_id)
+        handoff = Handoff(
+            task_id=task_id,
+            from_lifeform_id=from_lifeform_id,
+            to_lifeform_id=to_lifeform_id,
+            reason=reason,
+            scope=scope,
+            expected_output=expected_output,
+            return_to_lifeform_id=return_to_lifeform_id,
+        )
+        self.db.add(handoff)
+        await self.db.flush()
+        task.last_handoff_id = handoff.id
+        await self.assign_lifeform(
+            task_id=task_id,
+            owner_lifeform_id=to_lifeform_id,
+            assigned_by_lifeform_id=from_lifeform_id,
+            reason=reason,
+            scope=scope,
+            expected_output=expected_output,
+        )
+        return handoff
 
     async def add_progress(self, task_id: str, agent: str, content: str) -> Task:
         # per-task asyncio.Lock 防止并发写入 progress_log 时 last-write-wins 丢数据

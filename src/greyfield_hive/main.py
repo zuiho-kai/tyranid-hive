@@ -16,11 +16,13 @@ from greyfield_hive.middleware import RequestLoggingMiddleware
 
 _STATIC_DIR = Path(__file__).parent / "static"
 
-from greyfield_hive.db import init_db
+from greyfield_hive.db import SessionLocal, init_db
+from greyfield_hive.services.lifeform_service import LifeformService
 from greyfield_hive.services.event_bus import get_event_bus
 from greyfield_hive.workers.orchestrator import OrchestratorWorker
 from greyfield_hive.workers.dispatcher import DispatchWorker
 from greyfield_hive.workers.stall_detector import StallDetector
+from greyfield_hive.api.lifeforms import router as lifeforms_router
 from greyfield_hive.api.tasks import router as tasks_router
 from greyfield_hive.api.missions import router as missions_router
 from greyfield_hive.api.units import router as units_router
@@ -32,6 +34,9 @@ from greyfield_hive.api.ws import router as ws_router, register_ws_broadcast
 from greyfield_hive.api.evolution import router as evolution_router
 from greyfield_hive.api.fitness import router as fitness_router
 from greyfield_hive.api.genes import router as genes_router
+import greyfield_hive.models.lifeform  # noqa: F401
+import greyfield_hive.models.assignment  # noqa: F401
+import greyfield_hive.models.handoff  # noqa: F401
 import greyfield_hive.models.fitness  # noqa: F401 — 确保 KillMark 注册到 Base.metadata
 
 
@@ -47,6 +52,8 @@ async def lifespan(app: FastAPI):
 
     # 1. 初始化数据库
     await init_db()
+    async with SessionLocal() as session:
+        await LifeformService(session).ensure_defaults()
     logger.info("✅ 数据库初始化完成")
 
     # 2. 注册 WebSocket 广播
@@ -93,6 +100,7 @@ app.add_middleware(
 app.add_middleware(RequestLoggingMiddleware)
 
 # 注册路由
+app.include_router(lifeforms_router)
 app.include_router(tasks_router)
 app.include_router(missions_router)
 app.include_router(units_router)
