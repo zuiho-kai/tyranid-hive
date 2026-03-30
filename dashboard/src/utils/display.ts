@@ -1,20 +1,20 @@
-import type { BusEvent, Synapse, Task } from '../api'
+import type { BusEvent, Handoff, Lifeform, Synapse, Task } from '../api'
 
 const utf8Decoder = new TextDecoder('utf-8', { fatal: false })
 
 const modeLabels: Record<string, string> = {
   auto: '自动路由',
-  solo: '单代理',
+  solo: '单线处理',
   trial: '对比评审',
   chain: '串行协作',
-  swarm: '并行协作',
+  swarm: '并行分化',
 }
 
 const stateLabels: Record<string, string> = {
   Start: '已创建',
   Incubating: '任务受理',
   Planning: '规划中',
-  Reviewing: '评审中',
+  Reviewing: '审阅中',
   Spawning: '准备执行',
   Executing: '执行中',
   Consolidating: '整理中',
@@ -28,7 +28,7 @@ const lifecycleLabels: Record<string, string> = {
   idea: '待开始',
   spec: '规划中',
   progress: '进行中',
-  review: '评审中',
+  review: '审阅中',
   done: '已完成',
   blocked: '已阻塞',
 }
@@ -45,38 +45,38 @@ const stageLabels: Record<string, string> = {
   routing: '路由判断',
   execution: '执行阶段',
   idle: '空闲',
-  overmind: '主脑',
-  'code-expert': '代码专家',
-  'research-analyst': '研究分析',
-  'evolution-master': '演化主控',
-  'finance-scout': '金融侦察',
+  overmind: '虫群主宰',
+  'code-expert': '实施子主脑',
+  'research-analyst': '研究子主脑',
+  'evolution-master': '演化子主脑',
+  'finance-scout': '市场子主脑',
 }
 
 const synapseLabels: Record<string, { name: string; role: string; emoji: string }> = {
   overmind: {
-    name: '主脑',
-    role: '负责受理、判断和任务分流',
-    emoji: 'O',
+    name: '虫群主宰',
+    role: '负责接球、判断和最终收敛',
+    emoji: '宰',
   },
   'evolution-master': {
-    name: '演化主控',
-    role: '沉淀经验并转成可复用策略',
-    emoji: 'E',
+    name: '演化子主脑',
+    role: '负责提炼经验和调整谱系策略',
+    emoji: '演',
   },
   'code-expert': {
-    name: '代码专家',
-    role: '负责实现、修复与验证',
-    emoji: 'C',
+    name: '实施子主脑',
+    role: '负责实现、修复和验证',
+    emoji: '实',
   },
   'research-analyst': {
-    name: '研究分析',
-    role: '负责查资料、比方案、做摘要',
-    emoji: 'R',
+    name: '研究子主脑',
+    role: '负责检索、整理和归纳',
+    emoji: '研',
   },
   'finance-scout': {
-    name: '金融侦察',
-    role: '负责金融数据与市场信号收集',
-    emoji: 'F',
+    name: '市场子主脑',
+    role: '负责行情、资金与市场信号',
+    emoji: '市',
   },
 }
 
@@ -110,9 +110,9 @@ function repairLatin1Utf8(text: string) {
 
 function replaceKnownGarble(text: string) {
   return text
-    .replace(/閳玕?/g, '->')
-    .replace(/閳ヮ洣|閳ヮ泧|閳ヮ泬|閳ヮ泹|閳ヮ泿|閳ヮ洀/g, '...')
-    .replace(/閳?/g, '-')
+    .replace(/闁崇帟?/g, '->')
+    .replace(/闁炽儺娲闁炽儺娉闁炽儺娉瑋闁炽儺娉箌闁炽儺娉縷闁炽儺娲€/g, '...')
+    .replace(/闁愁櫌?/g, '-')
 }
 
 export function sanitizeText(value: unknown, fallback = ''): string {
@@ -167,6 +167,41 @@ export function displayTaskDescription(task: Pick<Task, 'description'> | null | 
   return sanitizeText(task.description, '')
 }
 
+export function displayLifeformName(lifeform: Lifeform | null | undefined, fallback = '') {
+  if (!lifeform) return fallback
+  if (lifeform.display_name) return sanitizeText(lifeform.display_name, lifeform.display_name)
+  if (lifeform.name) return sanitizeText(lifeform.name, lifeform.name)
+  return fallback
+}
+
+export function displayTaskOwner(task: Pick<Task, 'current_owner' | 'assignee_synapse'> | null | undefined) {
+  if (!task) return '虫群主宰'
+  const ownerName = displayLifeformName(task.current_owner, '')
+  if (ownerName) return ownerName
+  if (task.assignee_synapse) {
+    return synapseLabels[task.assignee_synapse]?.name ?? sanitizeText(task.assignee_synapse, task.assignee_synapse)
+  }
+  return '虫群主宰'
+}
+
+export function displayHandoffTarget(handoff: Handoff | null | undefined, lifeforms: Lifeform[] = []) {
+  if (!handoff) return '未指定对象'
+  if (handoff.to_lifeform) return displayLifeformName(handoff.to_lifeform, '未指定对象')
+  const found = handoff.to_lifeform_id
+    ? lifeforms.find(item => item.id === handoff.to_lifeform_id)
+    : undefined
+  return displayLifeformName(found, '未指定对象')
+}
+
+export function displayHandoffSource(handoff: Handoff | null | undefined, lifeforms: Lifeform[] = []) {
+  if (!handoff) return '未知来源'
+  if (handoff.from_lifeform) return displayLifeformName(handoff.from_lifeform, '未知来源')
+  const found = handoff.from_lifeform_id
+    ? lifeforms.find(item => item.id === handoff.from_lifeform_id)
+    : undefined
+  return displayLifeformName(found, '未知来源')
+}
+
 export function formatSpeaker(value: string) {
   if (value.startsWith('synapse.')) {
     const synapseId = value.slice('synapse.'.length)
@@ -178,9 +213,10 @@ export function formatSpeaker(value: string) {
   if (value === 'mode-router') return '路由器'
   if (value === 'trial-race') return '对比评审'
   if (value === 'chain-runner') return '串行协作'
-  if (value === 'swarm-runner') return '并行协作'
+  if (value === 'swarm-runner') return '并行分化'
   if (value === 'task_service') return '任务服务'
   if (value === 'dispatcher') return '调度器'
+  if (value === 'orchestrator') return '编排器'
   return sanitizeText(value, value)
 }
 

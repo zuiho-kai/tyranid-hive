@@ -2,9 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import { PanelRight, PanelRightClose, Send, Sparkles } from 'lucide-react'
 import type { MissionDraft } from '../App'
-import type { BusEvent, Task } from '../api'
+import type { BusEvent, Handoff, Lifeform, Task } from '../api'
 import {
+  displayHandoffSource,
+  displayHandoffTarget,
+  displayLifeformName,
   displayTaskDescription,
+  displayTaskOwner,
   displayTaskTitle,
   formatSpeaker,
   formatStage,
@@ -16,6 +20,8 @@ import {
 interface Props {
   selectedTask: Task | null
   events: BusEvent[]
+  handoffs: Handoff[]
+  lifeforms: Lifeform[]
   draft: MissionDraft
   submitting: boolean
   showDetail: boolean
@@ -29,7 +35,7 @@ interface ChatMessage {
   id: string
   ts: string
   speaker: string
-  tone: 'user' | 'system' | 'progress'
+  tone: 'user' | 'sovereign' | 'handoff' | 'progress' | 'system'
   title: string
   content: string
 }
@@ -37,6 +43,8 @@ interface ChatMessage {
 export default function TrunkChat({
   selectedTask,
   events,
+  handoffs,
+  lifeforms,
   draft,
   submitting,
   showDetail,
@@ -47,12 +55,16 @@ export default function TrunkChat({
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [composerExpanded, setComposerExpanded] = useState(!selectedTask)
-  const messages = useMemo(() => buildMessages(selectedTask), [selectedTask])
+  const messages = useMemo(
+    () => buildMessages(selectedTask, handoffs, lifeforms),
+    [handoffs, lifeforms, selectedTask],
+  )
   const latestEvent = events[0] ?? null
   const currentStage = typeof latestEvent?.payload?.stage === 'string'
     ? latestEvent.payload.stage
     : fallbackStage(selectedTask)
   const blockers = getTaskBlockers(selectedTask)
+  const ownerName = selectedTask ? displayTaskOwner(selectedTask) : ''
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
@@ -78,18 +90,19 @@ export default function TrunkChat({
               data-testid="selected-task-title"
               className="mt-2 max-w-4xl text-[30px] font-semibold leading-[1.15] tracking-[-0.04em] text-[var(--cl-text)]"
             >
-              {selectedTask ? displayTaskTitle(selectedTask) : '把问题写清楚，系统会自动接手'}
+              {selectedTask ? displayTaskTitle(selectedTask) : '把问题写清楚，虫群主宰会先接住'}
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--cl-muted)]">
               {selectedTask
-                ? displayTaskDescription(selectedTask) || '这里只展示任务主线，不把内部编排细节混进来。'
-                : '直接描述你要解决的问题、当前情况和期望结果。默认会自动路由，不需要先选代理。'}
+                ? displayTaskDescription(selectedTask) || '这里只显示责任主线，不把所有内部执行细节都堆进来。'
+                : '直接描述你要解决的问题、现在的情况和期望结果。默认自动路由，不需要先选代理。'}
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             {selectedTask ? (
               <>
+                <StatusPill label="当前负责人" value={ownerName} testId="console-owner" />
                 <StatusPill label="状态" value={formatState(selectedTask.state)} testId="console-state" />
                 <StatusPill label="阶段" value={formatStage(currentStage)} testId="console-stage" />
                 {blockers.length ? (
@@ -162,7 +175,7 @@ export default function TrunkChat({
               className="min-h-[144px] w-full resize-none rounded-[26px] border border-[var(--cl-border)] bg-[rgba(255,255,255,0.86)] px-4 py-3 text-sm leading-7 text-[var(--cl-text)] outline-none placeholder:text-[var(--cl-dim)]"
             />
             <div className="mt-3 rounded-[22px] border border-[var(--cl-border)] bg-[rgba(255,255,255,0.6)] px-4 py-3 text-sm leading-6 text-[var(--cl-muted)]">
-              只需要描述任务本身。系统会自动判断是否要补充信息、是否需要分化，以及交给谁处理。
+              只需要描述任务本身。系统会自动判断是否需要补充信息、是否需要分化，以及交给谁处理。
             </div>
 
             <div className="mt-4 flex justify-end">
@@ -186,7 +199,7 @@ export default function TrunkChat({
           >
             <div>
               <div className="text-sm font-semibold text-[var(--cl-text)]">发起新任务</div>
-              <div className="mt-1 text-sm text-[var(--cl-muted)]">写一个新问题，系统会自动接手。</div>
+              <div className="mt-1 text-sm text-[var(--cl-muted)]">写一个新问题，系统会自动接住。</div>
             </div>
             <div className="text-sm text-[var(--cl-primary)]">展开</div>
           </button>
@@ -233,38 +246,73 @@ function StatusPill({ label, value, testId }: { label: string; value: string; te
   )
 }
 
-function buildMessages(selectedTask: Task | null): ChatMessage[] {
+function buildMessages(selectedTask: Task | null, handoffs: Handoff[], lifeforms: Lifeform[]): ChatMessage[] {
   if (!selectedTask) return []
 
-  const seed: ChatMessage = {
-    id: `task-${selectedTask.id}`,
+  const messages: ChatMessage[] = [
+    {
+      id: `task-${selectedTask.id}`,
+      ts: selectedTask.created_at,
+      speaker: '用户',
+      tone: 'user',
+      title: '用户输入',
+      content: displayTaskDescription(selectedTask) || displayTaskTitle(selectedTask),
+    },
+  ]
+
+  const entryLifeform = displayLifeformName(selectedTask.entry_lifeform, '虫群主宰')
+  messages.push({
+    id: `entry-${selectedTask.id}`,
     ts: selectedTask.created_at,
-    speaker: formatSpeaker(selectedTask.creator || 'user'),
-    tone: 'user',
-    title: '用户输入',
-    content: displayTaskDescription(selectedTask) || displayTaskTitle(selectedTask),
+    speaker: entryLifeform,
+    tone: 'sovereign',
+    title: `${entryLifeform}接住任务`,
+    content: '先判断任务结构，再决定是亲自处理、交给已有子主脑，还是继续分化。',
+  })
+
+  handoffs.forEach((handoff, index) => {
+    const fromName = displayHandoffSource(handoff, lifeforms)
+    const toName = displayHandoffTarget(handoff, lifeforms)
+    const lines = [
+      sanitizeText(handoff.reason, ''),
+      handoff.scope ? `处理范围：${sanitizeText(handoff.scope, handoff.scope)}` : '',
+      handoff.expected_output ? `期望产出：${sanitizeText(handoff.expected_output, handoff.expected_output)}` : '',
+    ].filter(Boolean)
+
+    messages.push({
+      id: handoff.id || `handoff-${index}`,
+      ts: handoff.created_at || selectedTask.updated_at,
+      speaker: fromName,
+      tone: 'handoff',
+      title: `将任务交给${toName}`,
+      content: lines.join('\n') || '责任已切换，后续由新的负责人继续推进。',
+    })
+  })
+
+  selectedTask.progress_log.forEach((entry, index) => {
+    messages.push({
+      id: `progress-${index}-${entry.ts}`,
+      ts: entry.ts,
+      speaker: formatSpeaker(entry.agent),
+      tone: 'progress',
+      title: entry.agent.includes('overmind') ? '判断输出' : '执行进展',
+      content: sanitizeText(entry.content, '[空输出]'),
+    })
+  })
+
+  const latestState = selectedTask.flow_log[selectedTask.flow_log.length - 1]
+  if (latestState && ['WaitingInput', 'Complete', 'Dormant', 'Cancelled'].includes(latestState.to)) {
+    messages.push({
+      id: `state-${latestState.ts}`,
+      ts: latestState.ts,
+      speaker: '系统',
+      tone: 'system',
+      title: `状态更新为${formatState(latestState.to)}`,
+      content: sanitizeText(latestState.reason, '状态已更新。'),
+    })
   }
 
-  const flowMessages = selectedTask.flow_log.map((entry, index) => ({
-    id: `flow-${index}-${entry.ts}`,
-    ts: entry.ts,
-    speaker: formatSpeaker(entry.agent || 'system'),
-    tone: 'system' as const,
-    title: `${formatState(entry.from ?? 'Start')} -> ${formatState(entry.to)}`,
-    content: sanitizeText(entry.reason, '状态发生变化。'),
-  }))
-
-  const progressMessages = selectedTask.progress_log.map((entry, index) => ({
-    id: `progress-${index}-${entry.ts}`,
-    ts: entry.ts,
-    speaker: formatSpeaker(entry.agent),
-    tone: 'progress' as const,
-    title: entry.agent.includes('overmind') ? '主脑输出' : '执行输出',
-    content: sanitizeText(entry.content, '[空输出]'),
-  }))
-
-  return [seed, ...flowMessages, ...progressMessages]
-    .sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime())
+  return messages.sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime())
 }
 
 function formatTs(value: string) {
@@ -275,6 +323,8 @@ function formatTs(value: string) {
 
 function bubbleClass(tone: ChatMessage['tone']) {
   if (tone === 'user') return 'border-[var(--cl-border)] bg-[rgba(93,124,87,0.10)]'
+  if (tone === 'sovereign') return 'border-[var(--cl-border)] bg-[rgba(177,133,76,0.12)]'
+  if (tone === 'handoff') return 'border-[var(--cl-border)] bg-[rgba(109,121,181,0.10)]'
   if (tone === 'progress') return 'border-[var(--cl-border)] bg-[rgba(79,131,169,0.10)]'
   return 'border-[var(--cl-border)] bg-[var(--cl-panel-strong)]'
 }

@@ -12,6 +12,9 @@ export interface Task {
   priority: string
   exec_mode: string | null
   assignee_synapse: string | null
+  current_owner_lifeform_id?: string | null
+  entry_lifeform_id?: string | null
+  last_handoff_id?: string | null
   creator: string
   flow_log: FlowEntry[]
   progress_log: ProgressEntry[]
@@ -22,6 +25,50 @@ export interface Task {
   parent_id: string | null
   depends_on: string[]
   labels: string[]
+  current_owner?: Lifeform | null
+  entry_lifeform?: Lifeform | null
+  current_assignment?: Assignment | null
+  last_handoff?: Handoff | null
+}
+
+export interface Lifeform {
+  id: string
+  key: string
+  kind: string
+  name: string
+  display_name: string
+  persona_summary: string
+  lineage: string
+  status: string
+  backing_synapse: string | null
+}
+
+export interface Assignment {
+  id: string
+  task_id: string
+  owner_lifeform_id: string | null
+  assigned_by_lifeform_id: string | null
+  reason: string
+  scope: string
+  expected_output: string
+  status: string
+  created_at: string | null
+  ended_at: string | null
+}
+
+export interface Handoff {
+  id: string
+  task_id: string
+  from_lifeform_id: string | null
+  to_lifeform_id: string | null
+  reason: string
+  scope: string
+  expected_output: string
+  return_to_lifeform_id: string | null
+  created_at: string | null
+  from_lifeform?: Lifeform | null
+  to_lifeform?: Lifeform | null
+  return_to_lifeform?: Lifeform | null
 }
 
 export interface FlowEntry {
@@ -140,6 +187,16 @@ export async function fetchTasks(params?: { state?: string; q?: string; priority
 
 export async function fetchTask(id: string): Promise<Task> {
   const r = await fetch(`${BASE}/tasks/${id}`)
+  return r.json()
+}
+
+export async function fetchTaskHandoffs(id: string): Promise<Handoff[]> {
+  const r = await fetch(`${BASE}/tasks/${id}/handoffs`)
+  return r.json()
+}
+
+export async function fetchLifeforms(): Promise<Lifeform[]> {
+  const r = await fetch(`${BASE}/lifeforms`)
   return r.json()
 }
 

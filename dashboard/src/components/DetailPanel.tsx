@@ -1,9 +1,12 @@
 import type { ReactNode } from 'react'
 import type { MissionDraft } from '../App'
-import type { BusEvent, Synapse, Task } from '../api'
+import type { BusEvent, Handoff, Lifeform, Synapse, Task } from '../api'
 import {
-  displaySynapse,
+  displayHandoffSource,
+  displayHandoffTarget,
+  displayTaskOwner,
   displayTaskTitle,
+  displaySynapse,
   formatMode,
   formatPriority,
   formatSpeaker,
@@ -19,6 +22,8 @@ import {
 interface Props {
   selectedTask: Task | null
   events: BusEvent[]
+  handoffs: Handoff[]
+  lifeforms: Lifeform[]
   draft: MissionDraft
   synapses: Synapse[]
 }
@@ -35,6 +40,8 @@ interface ExecutionEntry {
 export default function DetailPanel({
   selectedTask,
   events,
+  handoffs,
+  lifeforms,
   draft,
   synapses,
 }: Props) {
@@ -45,23 +52,24 @@ export default function DetailPanel({
   const blockers = getTaskBlockers(selectedTask)
   const risks = getTaskRisks(selectedTask)
   const summary = getTaskSummary(selectedTask)
-  const routeTarget = selectedTask ? getRouteTarget(selectedTask, synapses) : ''
-  const routeReason = selectedTask ? getRouteReason(selectedTask) : ''
+  const ownerName = selectedTask ? displayTaskOwner(selectedTask) : ''
+  const entryName = selectedTask?.entry_lifeform?.display_name || selectedTask?.entry_lifeform?.name || '虫群主宰'
+  const routeReason = selectedTask ? getRouteReason(selectedTask, synapses) : ''
   const splitItems = selectedTask ? getSplitItems(selectedTask, synapses) : []
   const executionEntries = selectedTask ? buildExecutionEntries(selectedTask, events, synapses) : []
   const rawEvents = events.slice(0, 30)
 
   return (
-    <aside className="hidden h-full w-[360px] shrink-0 flex-col overflow-hidden rounded-[32px] border border-[var(--cl-border)] bg-[var(--cl-panel)] shadow-[0_20px_60px_rgba(119,83,56,0.10)] backdrop-blur-xl xl:flex">
+    <aside className="hidden h-full w-[380px] shrink-0 flex-col overflow-hidden rounded-[32px] border border-[var(--cl-border)] bg-[var(--cl-panel)] shadow-[0_20px_60px_rgba(119,83,56,0.10)] backdrop-blur-xl xl:flex">
       <div className="border-b border-[var(--cl-border)] px-5 pb-4 pt-5">
         <div className="text-[11px] uppercase tracking-[0.18em] text-[var(--cl-warning)]">细节面板</div>
         <h2 className="mt-2 text-[26px] font-semibold tracking-[-0.03em] text-[var(--cl-text)]">
-          {selectedTask ? '路由与过程' : '默认配置'}
+          {selectedTask ? '责任链与执行细节' : '默认配置'}
         </h2>
         <p className="mt-2 text-sm leading-6 text-[var(--cl-muted)]">
           {selectedTask
-            ? '默认界面只看主线；这里按需展开路由原因、分化方案、执行过程和原始事件。'
-            : '选中任务后，这里会显示为什么这样处理，以及完整过程。'}
+            ? '默认界面只看主线；这里展开负责人、交接原因、分化结构和原始事件。'
+            : '选中任务后，这里会显示为什么这样处理，以及任务内部发生了什么。'}
         </p>
       </div>
 
@@ -74,25 +82,73 @@ export default function DetailPanel({
               <MetricRow label="阶段" value={formatStage(currentStage)} />
               <MetricRow label="模式" value={formatMode(selectedTask.exec_mode)} />
               <MetricRow label="优先级" value={formatPriority(selectedTask.priority)} />
-              <MetricRow label="当前处理" value={routeTarget} />
+              <MetricRow label="入口责任" value={sanitizeText(entryName, '虫群主宰')} />
+              <MetricRow label="当前负责人" value={ownerName} />
+            </Panel>
+
+            <Panel title="当前责任">
+              <MetricBlock
+                title="为什么由她负责"
+                content={selectedTask.current_assignment?.reason || routeReason || '当前没有记录更具体的责任原因。'}
+              />
+              {selectedTask.current_assignment?.scope ? (
+                <MetricBlock title="处理范围" content={selectedTask.current_assignment.scope} />
+              ) : null}
+              {selectedTask.current_assignment?.expected_output ? (
+                <MetricBlock title="期望产出" content={selectedTask.current_assignment.expected_output} />
+              ) : null}
+            </Panel>
+
+            <Panel title="责任交接">
+              {handoffs.length ? (
+                <div className="space-y-3">
+                  {handoffs.map(handoff => (
+                    <div
+                      key={handoff.id}
+                      className="rounded-[20px] border border-[var(--cl-border)] bg-[rgba(255,255,255,0.72)] px-4 py-3"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-sm font-semibold text-[var(--cl-text)]">
+                          {displayHandoffSource(handoff, lifeforms)} → {displayHandoffTarget(handoff, lifeforms)}
+                        </div>
+                        <div className="text-[11px] text-[var(--cl-dim)]">{formatTs(handoff.created_at || '')}</div>
+                      </div>
+                      <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[var(--cl-text)]">
+                        {sanitizeText(handoff.reason, '未写明交接原因。')}
+                      </div>
+                      {handoff.scope ? (
+                        <div className="mt-2 text-sm leading-6 text-[var(--cl-muted)]">
+                          处理范围：{sanitizeText(handoff.scope, handoff.scope)}
+                        </div>
+                      ) : null}
+                      {handoff.expected_output ? (
+                        <div className="mt-1 text-sm leading-6 text-[var(--cl-muted)]">
+                          期望产出：{sanitizeText(handoff.expected_output, handoff.expected_output)}
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <Empty text="当前没有责任交接，说明任务还由同一位负责人推进。" />
+              )}
             </Panel>
 
             <Panel title="为什么这样处理">
               {summary ? (
-                <div className="rounded-[20px] border border-[var(--cl-border)] bg-[var(--cl-panel-strong)] px-4 py-3 text-sm leading-7 text-[var(--cl-text)]">
-                  {summary}
-                </div>
+                <MetricBlock title="主宰摘要" content={summary} />
               ) : null}
-              <div className="mt-3 rounded-[20px] border border-[var(--cl-border)] bg-[rgba(255,255,255,0.72)] px-4 py-3 text-sm leading-7 text-[var(--cl-text)]">
-                {routeReason}
-              </div>
+              <MetricBlock
+                title="路由判断"
+                content={routeReason || '当前没有额外的路由说明。'}
+              />
             </Panel>
 
-            <Panel title="分化情况">
+            <Panel title="分化结构">
               {splitItems.length ? (
                 <ListBlock items={splitItems} tone="neutral" />
               ) : (
-                <Empty text="当前没有额外分化，按单线推进。" />
+                <Empty text="当前没有额外分化，按单线责任链推进。" />
               )}
             </Panel>
 
@@ -147,7 +203,7 @@ export default function DetailPanel({
                           <span className="text-[11px] text-[var(--cl-dim)]">{formatTs(event.created_at)}</span>
                         </div>
                         <div className="mt-2 text-sm font-semibold text-[var(--cl-text)]">
-                          {formatEventHeadline(event)}
+                          {formatEventHeadline(event, synapses)}
                         </div>
                         <pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-xs leading-6 text-[var(--cl-muted)]">
                           {JSON.stringify(sanitizeJson(event.payload), null, 2)}
@@ -166,15 +222,15 @@ export default function DetailPanel({
             <Panel title="默认配置">
               <MetricRow label="模式" value={formatMode(draft.mode)} />
               <MetricRow label="优先级" value={formatPriority(draft.priority)} />
-              <MetricRow label="代理数" value={String(synapses.length)} />
+              <MetricRow label="可用执行核" value={String(synapses.length)} />
             </Panel>
 
             <Panel title="使用方式">
               <ListBlock
                 items={[
-                  '先在中间栏直接写任务，不用先选代理。',
-                  '默认只看任务主线，需要时再点开细节。',
-                  '右侧会解释为什么这样路由，以及执行过程中发生了什么。',
+                  '先在中间栏直接写任务，不用先挑角色。',
+                  '默认只看责任主线，想看细节再展开。',
+                  '右侧会解释为什么这样路由，以及内部执行发生了什么。',
                 ]}
                 tone="neutral"
               />
@@ -202,6 +258,17 @@ function MetricRow({ label, value, mono = false }: { label: string; value: strin
       <span className={`max-w-[58%] text-right text-sm leading-6 text-[var(--cl-text)] ${mono ? 'font-mono text-[12px]' : ''}`}>
         {value}
       </span>
+    </div>
+  )
+}
+
+function MetricBlock({ title, content }: { title: string; content: string }) {
+  return (
+    <div className="rounded-[20px] border border-[var(--cl-border)] bg-[rgba(255,255,255,0.72)] px-4 py-3">
+      <div className="text-xs tracking-[0.06em] text-[var(--cl-dim)]">{title}</div>
+      <div className="mt-2 whitespace-pre-wrap text-sm leading-7 text-[var(--cl-text)]">
+        {sanitizeText(content, content)}
+      </div>
     </div>
   )
 }
@@ -254,38 +321,17 @@ function fallbackStage(task: Task | null) {
   return 'mission'
 }
 
-function getRouteTarget(task: Task, synapses: Synapse[]) {
-  const selectedSynapse = readMetaString(task.meta, 'selected_synapse')
-  const routeTarget = readMetaString(task.meta, 'route_target')
-
-  if (task.state === 'WaitingInput' || routeTarget === 'waiting-input') return '等待补充信息'
-  if (selectedSynapse) return synapseName(selectedSynapse, synapses)
-  if (routeTarget === 'trial') return '对比评审'
-  if (routeTarget === 'chain') return '串行协作'
-  if (routeTarget === 'swarm') return '并行协作'
-  if (task.assignee_synapse) return synapseName(task.assignee_synapse, synapses)
-  return '代码专家'
-}
-
-function getRouteReason(task: Task) {
+function getRouteReason(task: Task, synapses: Synapse[]) {
   const storedReason = readMetaString(task.meta, 'route_reason')
   if (storedReason) return storedReason
 
-  if (task.state === 'WaitingInput') {
-    return '当前缺少关键信息，所以任务先停在等待补充，而不是继续执行。'
-  }
-  if (task.exec_mode === 'trial') {
-    return '当前任务进入对比评审模式，会比较多个候选执行者的结果。'
-  }
-  if (task.exec_mode === 'chain') {
-    return '当前任务进入串行协作模式，每一步都会承接上一阶段的输出。'
-  }
-  if (task.exec_mode === 'swarm') {
-    return '当前任务进入并行协作模式，会拆成多个相对独立的执行单元。'
-  }
-  return task.assignee_synapse
-    ? `当前任务按单线推进，并且已经明确指定由 ${task.assignee_synapse} 处理。`
-    : '当前任务按单线推进；没有显式指定执行者时，默认交给代码专家。'
+  if (task.current_assignment?.reason) return sanitizeText(task.current_assignment.reason, task.current_assignment.reason)
+  if (task.state === 'WaitingInput') return '当前缺少关键输入，所以任务停在等待补充，而不是继续执行。'
+  if (task.exec_mode === 'trial') return '这次任务存在多条可比较路径，所以进入对比评审。'
+  if (task.exec_mode === 'chain') return '这次任务存在严格的线性依赖，所以采用串行协作。'
+  if (task.exec_mode === 'swarm') return '这次任务可以拆成多个相对独立的执行单元，所以采用并行分化。'
+  if (task.assignee_synapse) return `当前任务按单线推进，执行层会由${synapseName(task.assignee_synapse, synapses)}承接。`
+  return '当前任务由虫群主宰先接住，再决定是否需要进一步委派。'
 }
 
 function getSplitItems(task: Task, synapses: Synapse[]) {
@@ -295,7 +341,7 @@ function getSplitItems(task: Task, synapses: Synapse[]) {
       .filter(item => item && typeof item === 'object')
       .map(item => {
         const kind = typeof item.type === 'string' ? item.type : 'step'
-        const synapse = typeof item.synapse === 'string' ? synapseName(item.synapse, synapses) : '未指定'
+        const synapse = typeof item.synapse === 'string' ? synapseName(item.synapse, synapses) : '未指定对象'
         const order = typeof item.order === 'number' ? ` ${item.order}` : ''
         const message = typeof item.message === 'string' ? `，负责：${sanitizeText(item.message, item.message)}` : ''
         if (kind === 'candidate') return `候选执行者：${synapse}`
@@ -314,8 +360,8 @@ function getSplitItems(task: Task, synapses: Synapse[]) {
     return task.meta.swarm_units
       .filter(unit => unit && typeof unit === 'object')
       .map((unit, index) => {
-        const synapse = typeof unit.synapse === 'string' ? synapseName(unit.synapse, synapses) : '未指定'
-        const message = sanitizeText(unit.message, '未说明')
+        const synapse = typeof unit.synapse === 'string' ? synapseName(unit.synapse, synapses) : '未指定对象'
+        const message = sanitizeText(unit.message, '未写明目标')
         return `并行单元 ${index + 1}：${synapse}，负责：${message}`
       })
   }
@@ -337,7 +383,7 @@ function buildExecutionEntries(task: Task, events: BusEvent[], synapses: Synapse
     id: `progress-${index}-${entry.ts}`,
     ts: entry.ts,
     speaker: formatSpeaker(entry.agent),
-    title: entry.agent.includes('overmind') ? '主脑输出' : '执行输出',
+    title: entry.agent.includes('overmind') ? '主宰判断' : '执行输出',
     content: sanitizeText(entry.content, '[空输出]'),
     tone: 'progress',
   }))
@@ -360,22 +406,22 @@ function buildExecutionEntries(task: Task, events: BusEvent[], synapses: Synapse
       id: `event-${event.event_id}`,
       ts: event.created_at,
       speaker: formatSpeaker(event.producer),
-      title: formatEventHeadline(event),
+      title: formatEventHeadline(event, synapses),
       content: formatEventContent(event, synapses),
       tone: 'event',
     }))
 
-  const merged = [...flowEntries, ...eventEntries, ...progressEntries]
-  return merged.sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime())
+  return [...flowEntries, ...eventEntries, ...progressEntries]
+    .sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime())
 }
 
-function formatEventHeadline(event: BusEvent) {
-  const synapse = typeof event.payload?.synapse === 'string' ? event.payload.synapse : ''
-  const stage = typeof event.payload?.stage === 'string' ? event.payload.stage : ''
+function formatEventHeadline(event: BusEvent, synapses: Synapse[]) {
+  const synapse = typeof event.payload?.synapse === 'string' ? synapseName(event.payload.synapse, synapses) : ''
+  const stage = typeof event.payload?.stage === 'string' ? sanitizeText(event.payload.stage, event.payload.stage) : ''
 
   switch (event.event_type) {
     case 'task.dispatch.request':
-      return synapse ? `派发给 ${sanitizeText(synapse, synapse)}` : '创建派发请求'
+      return synapse ? `派发给${synapse}` : '创建派发请求'
     case 'task.mode.selected':
       return '确定执行模式'
     case 'task.execution.started':
@@ -385,13 +431,13 @@ function formatEventHeadline(event: BusEvent) {
     case 'task.execution.failed':
       return '执行失败'
     case 'task.stage.started':
-      return stage ? `${sanitizeText(stage, stage)} 开始` : '阶段开始'
+      return stage ? `${stage}开始` : '阶段开始'
     case 'task.stage.completed':
-      return stage ? `${sanitizeText(stage, stage)} 完成` : '阶段完成'
+      return stage ? `${stage}完成` : '阶段完成'
     case 'task.stage.failed':
-      return stage ? `${sanitizeText(stage, stage)} 失败` : '阶段失败'
+      return stage ? `${stage}失败` : '阶段失败'
     case 'agent.dispatch.start':
-      return synapse ? `${sanitizeText(synapse, synapse)} 已接单` : '代理开始处理'
+      return synapse ? `${synapse}已接手` : '执行者开始处理'
     default:
       return sanitizeText(event.event_type, event.event_type)
   }
@@ -402,38 +448,38 @@ function formatEventContent(event: BusEvent, synapses: Synapse[]) {
   const mode = typeof payload.mode === 'string' ? payload.mode : ''
   const synapse = typeof payload.synapse === 'string' ? synapseName(payload.synapse, synapses) : ''
   const stage = typeof payload.stage === 'string' ? sanitizeText(payload.stage, payload.stage) : ''
-  const source = typeof payload.source === 'string' ? payload.source : ''
+  const source = typeof payload.source === 'string' ? sanitizeText(payload.source, payload.source) : ''
   const nextState = typeof payload.next_state === 'string' ? formatState(payload.next_state) : ''
   const winner = typeof payload.winner === 'string' ? synapseName(payload.winner, synapses) : ''
 
   switch (event.event_type) {
     case 'task.dispatch.request':
       return synapse
-        ? `目标执行者：${synapse}${nextState ? `，完成后进入 ${nextState}` : ''}`
+        ? `目标执行者：${synapse}${nextState ? `，完成后进入${nextState}` : ''}`
         : '已经创建新的派发请求。'
     case 'task.mode.selected':
       return `模式：${formatMode(mode)}${source ? `，来源：${source}` : ''}`
     case 'task.execution.started':
       return mode ? `执行模式：${formatMode(mode)}` : '开始进入执行阶段。'
     case 'task.execution.completed':
-      return winner ? `执行完成，当前胜出结果来自 ${winner}。` : '执行阶段正常结束。'
+      return winner ? `执行完成，当前结果来自${winner}。` : '执行阶段正常结束。'
     case 'task.execution.failed':
       return '执行阶段结束，但存在失败。'
     case 'task.stage.started':
       return stage ? `阶段：${stage}` : '阶段开始。'
     case 'task.stage.completed':
-      return winner ? `阶段完成，胜出结果：${winner}` : '阶段完成。'
+      return winner ? `阶段完成，当前胜出结果：${winner}` : '阶段完成。'
     case 'task.stage.failed':
       return '该阶段失败或提前结束。'
     case 'agent.dispatch.start':
-      return synapse ? `${synapse} 已开始处理。` : '代理已开始处理。'
+      return synapse ? `${synapse}已开始处理。` : '执行者已开始处理。'
     default:
       return JSON.stringify(sanitizeJson(payload), null, 2)
   }
 }
 
 function synapseName(id: unknown, synapses: Synapse[]) {
-  if (typeof id !== 'string') return '未命名'
+  if (typeof id !== 'string') return '未命名对象'
   const synapse = synapses.find(item => item.id === id)
   return synapse ? displaySynapse(synapse).name : sanitizeText(id, id)
 }
