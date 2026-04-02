@@ -22,8 +22,10 @@ from loguru import logger
 from sqlalchemy import select, func, case
 
 from greyfield_hive.models.lesson import Lesson
+from greyfield_hive.models.episode import Episode, EpisodeStep
 from greyfield_hive.services.lessons_bank import LessonsBank
 from greyfield_hive.services.playbook_service import PlaybookService
+from greyfield_hive.services.episode_store import EpisodeStore
 
 
 @dataclass
@@ -147,9 +149,11 @@ class EvolutionMasterService:
     # ── 私有方法 ──────────────────────────────────────────
 
     async def _reflect(self, domain: str, lessons: List[Lesson]) -> ReflectResult:
-        """Phase 1 Reflect：诊断失败模式，语义聚类"""
+        """Phase 1 Reflect：诊断失败模式，语义聚类（Phase 1 增强：接入 EpisodeStore）"""
         fail_lessons = await self._get_fail_lessons(domain)
         fail_patterns: dict[str, int] = defaultdict(int)
+
+        # 原有：从 Lesson 内容提取失败模式
         for lesson in fail_lessons:
             content = (lesson.content or "").lower()
             if any(kw in content for kw in ("tool", "工具", "api")):
@@ -160,6 +164,24 @@ class EvolutionMasterService:
                 fail_patterns["understanding_issue"] += 1
             else:
                 fail_patterns["strategy_issue"] += 1
+
+        # Phase 1 新增：从 EpisodeStore 补充失败模式（更结构化，有 error_class）
+        try:
+            _ep_store = EpisodeStore(self._db)
+            fail_episodes = await _ep_store.query_by_domain(domain, days=30)
+            for ep in fail_episodes:
+                if ep.outcome != "failure":
+                    continue
+                # 从 episode 步骤的 error_class 计数（此处直接统计 episode 级 outcome）
+                fail_patterns["episode_failure"] = fail_patterns.get("episode_failure", 0) + 1
+            if fail_episodes:
+                logger.debug(
+                    f"[EvolutionMaster] Episode 补充: domain={domain} "
+                    f"episodes={len(fail_episodes)} "
+                    f"fail={sum(1 for e in fail_episodes if e.outcome == 'failure')}"
+                )
+        except Exception as _e:
+            logger.warning(f"[EvolutionMaster] EpisodeStore 查询失败（不影响进化）: {_e}")
 
         # 语义聚类：按 tags 分组
         clusters: dict[str, list] = defaultdict(list)

@@ -16,6 +16,8 @@ from typing import List
 from loguru import logger
 
 from greyfield_hive.db import SessionLocal
+from greyfield_hive.services.episode_store import EpisodeStore
+from greyfield_hive.services.task_fingerprint import TaskFingerprintService
 from greyfield_hive.services.event_bus import get_event_bus
 from greyfield_hive.services.execution_events import publish_stage_event
 from greyfield_hive.services.fitness_service import FitnessService
@@ -78,6 +80,20 @@ class ChainRunnerService:
             payload={"mode": "chain", "synapses": list(synapses)},
         )
 
+        # Phase 1: begin Episode
+        _fp = TaskFingerprintService().extract(message, domain=domain)
+        _episode_id: str | None = None
+        try:
+            async with SessionLocal() as _ep_db:
+                _ep = await EpisodeStore(_ep_db).begin_episode(
+                    task_id=task_id, fingerprint=_fp,
+                    chosen_mode="chain", justification=f"stages={len(synapses)}",
+                )
+                _episode_id = _ep.id
+                await _ep_db.commit()
+        except Exception as _e:
+            logger.warning(f"[Chain] Episode begin 失败（不影响执行）: {_e}")
+
         results: List[ChainStageResult] = []
         current_message = message
 
@@ -100,6 +116,21 @@ class ChainRunnerService:
             t0 = time.monotonic()
             raw = await self._worker._invoke_agent(synapse, enriched, task_id, trace_id)
             elapsed = time.monotonic() - t0
+
+            # Phase 1: record step
+            if _episode_id:
+                _ok = _infer_success(raw)
+                try:
+                    async with SessionLocal() as _ep_db:
+                        await EpisodeStore(_ep_db).record_step(
+                            _episode_id, actor=synapse, action_type="chain_stage",
+                            token_cost=len(raw.get("stdout") or "") // 4,
+                            wall_time=round(elapsed, 3),
+                            outcome="success" if _ok else "failure",
+                        )
+                        await _ep_db.commit()
+                except Exception as _e:
+                    logger.warning(f"[Chain] Episode step 失败: {_e}")
 
             stage = ChainStageResult(
                 synapse=synapse,
@@ -149,6 +180,17 @@ class ChainRunnerService:
 
         all_success = all(r.success for r in results) and len(results) == len(synapses)
         final_output = results[-1].stdout if results else ""
+
+        # Phase 1: finish Episode
+        if _episode_id:
+            try:
+                async with SessionLocal() as _ep_db:
+                    await EpisodeStore(_ep_db).finish_episode(
+                        _episode_id, outcome="success" if all_success else "failure"
+                    )
+                    await _ep_db.commit()
+            except Exception as _e:
+                logger.warning(f"[Chain] Episode finish 失败: {_e}")
 
         logger.info(
             f"[Chain] 结束: success={all_success}, "

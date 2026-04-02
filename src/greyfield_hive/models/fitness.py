@@ -30,6 +30,10 @@ class KillMark(Base):
     score      = Column(Float,      nullable=False, default=1.0)  # 0.0~1.0
     biomass_delta = Column(Float,   nullable=False, default=0.0)  # weight × score
     created_at = Column(DateTime,   default=_utcnow, nullable=False)
+    # Phase 1: Episode 关联（step 粒度记账）
+    episode_id      = Column(String(36), nullable=True)
+    episode_step_id = Column(String(36), nullable=True)
+    drain_category  = Column(String(32), nullable=True)  # standby / execution / coordination
 
     __table_args__ = (
         Index("ix_kill_marks_synapse_created", "synapse_id", "created_at"),

@@ -21,7 +21,10 @@ from typing import List
 
 from loguru import logger
 
+from greyfield_hive.db import SessionLocal
 from greyfield_hive.services.chain_runner import _record_fitness
+from greyfield_hive.services.episode_store import EpisodeStore
+from greyfield_hive.services.task_fingerprint import TaskFingerprintService
 from greyfield_hive.services.event_bus import get_event_bus
 from greyfield_hive.services.execution_events import publish_stage_event
 from greyfield_hive.workers.dispatcher import (
@@ -95,6 +98,24 @@ class SwarmRunnerService:
             return SwarmResult(task_id=task_id, results=[])
 
         sem = asyncio.Semaphore(max_concurrent)
+
+        # Phase 1: begin Episode
+        _first_domain = units[0].domain if units else "general"
+        _first_msg = units[0].message if units else ""
+        _fp = TaskFingerprintService().extract(_first_msg, domain=_first_domain)
+        _episode_id: str | None = None
+        try:
+            async with SessionLocal() as _ep_db:
+                _ep = await EpisodeStore(_ep_db).begin_episode(
+                    task_id=task_id, fingerprint=_fp,
+                    chosen_mode="swarm",
+                    justification=f"units={len(units)}",
+                )
+                _episode_id = _ep.id
+                await _ep_db.commit()
+        except Exception as _e:
+            logger.warning(f"[Swarm] Episode begin 失败: {_e}")
+
         logger.info(
             f"[Swarm] {task_id} 启动 {len(units)} 个 units，"
             f"最大并发={max_concurrent}"
@@ -132,6 +153,21 @@ class SwarmRunnerService:
                     unit.synapse, enriched, task_id, trace_id
                 )
                 elapsed = time.monotonic() - t0
+
+                # Phase 1: record step per unit
+                if _episode_id:
+                    _ok = _infer_success(raw)
+                    try:
+                        async with SessionLocal() as _ep_db:
+                            await EpisodeStore(_ep_db).record_step(
+                                _episode_id, actor=unit.synapse, action_type="swarm_unit",
+                                token_cost=len(raw.get("stdout") or "") // 4,
+                                wall_time=round(elapsed, 3),
+                                outcome="success" if _ok else "failure",
+                            )
+                            await _ep_db.commit()
+                    except Exception as _e:
+                        logger.warning(f"[Swarm] Episode step 失败: {_e}")
 
                 result = SwarmUnitResult(
                     synapse=unit.synapse,
@@ -179,6 +215,18 @@ class SwarmRunnerService:
         results = await asyncio.gather(*tasks)
 
         swarm = SwarmResult(task_id=task_id, results=list(results))
+
+        # Phase 1: finish Episode
+        if _episode_id:
+            try:
+                async with SessionLocal() as _ep_db:
+                    await EpisodeStore(_ep_db).finish_episode(
+                        _episode_id, outcome="success" if swarm.all_success else "failure"
+                    )
+                    await _ep_db.commit()
+            except Exception as _e:
+                logger.warning(f"[Swarm] Episode finish 失败: {_e}")
+
         logger.info(
             f"[Swarm] 完成: 总={swarm.total} "
             f"成功={swarm.success_count} 失败={swarm.fail_count} "

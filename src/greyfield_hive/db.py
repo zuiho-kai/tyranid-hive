@@ -99,3 +99,17 @@ def _bootstrap_compat_schema(sync_conn) -> None:
     existing_indexes = {item["name"] for item in inspector.get_indexes("tasks")}
     if "ix_tasks_current_owner_lifeform_id" not in existing_indexes:
         sync_conn.execute(text("CREATE INDEX IF NOT EXISTS ix_tasks_current_owner_lifeform_id ON tasks (current_owner_lifeform_id)"))
+
+    # Phase 1 — Episode / EpisodeStep 表（新 DB 由 create_all 建，旧 DB 在此补）
+    # Phase 1 — Episode / EpisodeStep 由 create_all 建表和索引。
+    # _bootstrap_compat_schema 只在表不存在时补 kill_marks 的新字段。
+    if "kill_marks" in inspector.get_table_names():
+        _km_cols = {c["name"] for c in inspector.get_columns("kill_marks")}
+        for col_ddl in [
+            "ALTER TABLE kill_marks ADD COLUMN episode_id TEXT",
+            "ALTER TABLE kill_marks ADD COLUMN episode_step_id TEXT",
+            "ALTER TABLE kill_marks ADD COLUMN drain_category TEXT",
+        ]:
+            col_name = col_ddl.split("COLUMN ")[1].split(" ")[0]
+            if col_name not in _km_cols:
+                sync_conn.execute(text(col_ddl))

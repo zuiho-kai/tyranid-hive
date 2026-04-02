@@ -17,7 +17,10 @@ from typing import Optional
 
 from loguru import logger
 
+from greyfield_hive.db import SessionLocal
 from greyfield_hive.services.chain_runner import _record_fitness
+from greyfield_hive.services.episode_store import EpisodeStore
+from greyfield_hive.services.task_fingerprint import TaskFingerprintService
 from greyfield_hive.services.execution_events import publish_stage_event
 from greyfield_hive.services.event_bus import get_event_bus
 from greyfield_hive.workers.dispatcher import (
@@ -190,6 +193,21 @@ class TrialRaceService:
             raw = await self._worker._invoke_agent(synapse, enriched, task_id, trace_id)
             return raw, time.monotonic() - t
 
+        # Phase 1: begin Episode
+        _fp = TaskFingerprintService().extract(message, domain=domain)
+        _episode_id: str | None = None
+        try:
+            async with SessionLocal() as _ep_db:
+                _ep = await EpisodeStore(_ep_db).begin_episode(
+                    task_id=task_id, fingerprint=_fp,
+                    chosen_mode="trial",
+                    justification=f"{synapse_a} vs {synapse_b}",
+                )
+                _episode_id = _ep.id
+                await _ep_db.commit()
+        except Exception as _e:
+            logger.warning(f"[TrialRace] Episode begin 失败: {_e}")
+
         (raw_a, elapsed_a), (raw_b, elapsed_b) = await asyncio.gather(
             _timed(synapse_a, enriched_a),
             _timed(synapse_b, enriched_b),
@@ -211,6 +229,22 @@ class TrialRaceService:
             success=_infer_success(raw_b),
             elapsed_sec=elapsed_b,
         )
+
+        # Phase 1: record steps for both synapses
+        if _episode_id:
+            try:
+                async with SessionLocal() as _ep_db:
+                    _ep_store = EpisodeStore(_ep_db)
+                    for _r, _el in [(result_a, elapsed_a), (result_b, elapsed_b)]:
+                        await _ep_store.record_step(
+                            _episode_id, actor=_r.synapse, action_type="trial_arm",
+                            token_cost=len(_r.stdout) // 4,
+                            wall_time=round(_el, 3),
+                            outcome="success" if _r.success else "failure",
+                        )
+                    await _ep_db.commit()
+            except Exception as _e:
+                logger.warning(f"[TrialRace] Episode step 失败: {_e}")
 
         # 多维评分
         max_elapsed = max(elapsed_a, elapsed_b, 0.001)
@@ -234,6 +268,16 @@ class TrialRaceService:
             f"{synapse_b}={'✅' if result_b.success else '❌'}"
             f"({score_b.total:.1f}分) 胜者={winner_name or '无'}"
         )
+
+        # Phase 1: finish Episode
+        if _episode_id:
+            try:
+                async with SessionLocal() as _ep_db:
+                    _overall = "success" if (result_a.success or result_b.success) else "failure"
+                    await EpisodeStore(_ep_db).finish_episode(_episode_id, outcome=_overall)
+                    await _ep_db.commit()
+            except Exception as _e:
+                logger.warning(f"[TrialRace] Episode finish 失败: {_e}")
 
         # 回写 progress_log + 写入经验
         await self._persist_all(trial, message, domain)
