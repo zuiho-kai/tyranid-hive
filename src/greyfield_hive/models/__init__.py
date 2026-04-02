@@ -8,6 +8,7 @@ from greyfield_hive.models.assignment import Assignment, AssignmentStatus
 from greyfield_hive.models.handoff import Handoff
 from greyfield_hive.models.episode import Episode, EpisodeStep
 from greyfield_hive.models.policy import Policy, PolicyState
+from greyfield_hive.models.skill import Skill, SkillState
 
 __all__ = [
     "Task", "TaskState", "STATE_TRANSITIONS", "TERMINAL_STATES",
@@ -18,4 +19,5 @@ __all__ = [
     "Handoff",
     "Episode", "EpisodeStep",
     "Policy", "PolicyState",
+    "Skill", "SkillState",
 ]

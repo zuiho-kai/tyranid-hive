@@ -101,6 +101,34 @@ def _bootstrap_compat_schema(sync_conn) -> None:
         sync_conn.execute(text("CREATE INDEX IF NOT EXISTS ix_tasks_current_owner_lifeform_id ON tasks (current_owner_lifeform_id)"))
 
     # Phase 1 — Episode / EpisodeStep 表（新 DB 由 create_all 建，旧 DB 在此补）
+    # Phase 3 — skills 表（由 create_all 建；旧 DB 在此补）
+    if "skills" not in inspector.get_table_names():
+        sync_conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS skills (
+                id TEXT PRIMARY KEY,
+                slug TEXT UNIQUE NOT NULL,
+                domain TEXT DEFAULT 'general',
+                state TEXT DEFAULT 'incubating',
+                description TEXT DEFAULT '',
+                preferred_mode TEXT DEFAULT 'solo',
+                preferred_synapse TEXT DEFAULT 'code-expert',
+                playbook_slugs TEXT,
+                match_criteria TEXT,
+                avg_token_cost INTEGER DEFAULT 0,
+                avg_wall_time REAL DEFAULT 0.0,
+                success_rate REAL DEFAULT 0.0,
+                total_uses INTEGER DEFAULT 0,
+                source_episode_count INTEGER DEFAULT 0,
+                source_domain TEXT DEFAULT '',
+                created_at TIMESTAMP,
+                last_used_at TIMESTAMP,
+                retired_at TIMESTAMP
+            )
+        """))
+        sync_conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_skills_domain_state ON skills (domain, state)"
+        ))
+
     # Phase 2 — policies 表（由 create_all 建；旧 DB 在此补）
     if "policies" not in inspector.get_table_names():
         sync_conn.execute(text("""
