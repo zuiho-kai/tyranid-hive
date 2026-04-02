@@ -39,8 +39,8 @@ class OrganCrystallizer:
 
     async def scan_and_crystallize(self, days: int = 60) -> list[str]:
         """扫描所有域，对符合条件的模式结晶。返回新建 skill slugs。"""
-        # 按 domain+mode 聚合 Episode
-        all_episodes = await self._ep_store.query_by_domain("", days=days)
+        # 查全部域的 Episode（修复：原来传空字符串查不到任何数据）
+        all_episodes = await self._ep_store.query_all(days=days)
         # 自行按 fingerprint.domain 分组
         domain_mode_groups: dict[tuple[str, str], list[Episode]] = defaultdict(list)
         global_token_sum = 0

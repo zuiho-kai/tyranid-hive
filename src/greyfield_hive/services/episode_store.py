@@ -169,6 +169,33 @@ class EpisodeStore:
         success = sum(1 for e in episodes if e.outcome == "success")
         return round(success / len(episodes), 3)
 
+    async def query_all(
+        self,
+        days: int = 60,
+        limit: int = 500,
+    ) -> list[Episode]:
+        """查询全部域的近期 Episode（供 OrganCrystallizer 全域扫描）。"""
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        result = await self._db.execute(
+            select(Episode)
+            .where(
+                Episode.created_at >= cutoff,
+                Episode.finished_at.isnot(None),
+            )
+            .order_by(Episode.created_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def query_by_task(self, task_id: str) -> list[Episode]:
+        """查询某任务的所有 Episode（供门禁连续失败检测）。"""
+        result = await self._db.execute(
+            select(Episode)
+            .where(Episode.task_id == task_id)
+            .order_by(Episode.created_at.desc())
+        )
+        return list(result.scalars().all())
+
     async def get_domain_mode_stats(
         self,
         domain: str,

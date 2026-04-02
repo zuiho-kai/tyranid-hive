@@ -41,6 +41,7 @@ from greyfield_hive.services.episode_store import EpisodeStore
 from greyfield_hive.services.task_fingerprint import TaskFingerprintService
 from greyfield_hive.services.credit_assignment import HeuristicCreditAssignment
 from greyfield_hive.services.policy_hit_tracker import PolicyHitTracker
+from greyfield_hive.services.world_model import WorldModelService
 
 
 # ── 小主脑元数据（人类可读）────────────────────────────────
@@ -463,6 +464,27 @@ class DispatchWorker:
             # 主脑输出：提取分析结果并覆盖下一状态
             if synapse == "overmind" and task_id:
                 next_state = await self._save_overmind_analysis(task_id, result, next_state)
+                # Phase 3: 更新世界模型目标树
+                try:
+                    _stdout = result.get("stdout") or ""
+                    import json as _json, re as _re
+                    _m = _re.search(r"\{.*\}", _stdout, _re.DOTALL)
+                    if _m:
+                        _data = _json.loads(_m.group())
+                        _todos = _data.get("todos") or []
+                        if _todos:
+                            async with SessionLocal() as _wm_db:
+                                _wm_svc = WorldModelService(_wm_db)
+                                _ws = await _wm_svc.get(task_id)
+                                _ws.goal_tree = [{"name": t} for t in _todos[:5]]
+                                _risks = _data.get("risks") or []
+                                for r in _risks[:3]:
+                                    if r not in _ws.confirmed_facts:
+                                        _ws.open_questions.append(f"风险：{r}")
+                                await _wm_svc.save(task_id, _ws)
+                                await _wm_db.commit()
+                except Exception:
+                    pass
 
             # 自动写入经验教训
             await self._write_outcome_lesson(
@@ -585,6 +607,18 @@ class DispatchWorker:
                 context_block += f"\n历史经验:\n{lessons_text}"
             if playbooks_text:
                 context_block += f"\n作战手册:\n{playbooks_text}"
+
+            # Phase 3: 注入世界模型摘要（让 Agent 不需要读完整上下文）
+            if task_id:
+                try:
+                    async with SessionLocal() as _wm_db:
+                        _ws = await WorldModelService(_wm_db).get(task_id)
+                    _wm_summary = _ws.summary()
+                    if _wm_summary:
+                        context_block += f"\n\n[世界状态]\n{_wm_summary}"
+                except Exception:
+                    pass
+
             return context_block
 
         except Exception as e:
