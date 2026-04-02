@@ -54,6 +54,13 @@ async def lifespan(app: FastAPI):
     await init_db()
     async with SessionLocal() as session:
         await LifeformService(session).ensure_defaults()
+        # Phase 2: 灌入初始策略种子（幂等）
+        try:
+            from greyfield_hive.services.policy_seeder import seed_policies
+            await seed_policies(session)
+            await session.commit()
+        except Exception as _se:
+            logger.warning(f"PolicySeeder 失败（不影响启动）: {_se}")
     logger.info("✅ 数据库初始化完成")
 
     # 2. 注册 WebSocket 广播

@@ -14,8 +14,15 @@ from greyfield_hive.db import SessionLocal
 from greyfield_hive.models.task import ExecutionMode, TaskState
 from greyfield_hive.services.episode_store import EpisodeStore
 from greyfield_hive.services.task_fingerprint import TaskFingerprintService
+from greyfield_hive.services.policy_registry import PolicyRegistry
+from greyfield_hive.services.shadow_evaluator import ShadowEvaluator
 from greyfield_hive.services.event_bus import get_event_bus, TOPIC_TASK_DISPATCH
 from greyfield_hive.services.execution_events import publish_stage_event, publish_task_event
+
+# 历史成功率差距阈值：超过此值才允许覆盖 baseline
+_HISTORY_OVERRIDE_THRESHOLD = 0.20
+# 允许覆盖的最小 Episode 样本数
+_HISTORY_MIN_SAMPLES = 5
 
 
 class ModeRouter:
@@ -37,17 +44,68 @@ class ModeRouter:
         success_state = self._success_state(meta)
         logger.info(f"[ModeRouter] {task_id} exec_mode={mode.value if hasattr(mode, 'value') else mode}")
 
-        # Phase 1: 查询历史 Episode 统计，记录日志作为辅助参考（不改变路由决策）
+        # Phase 2: 历史权重 + active policy 介入决策
+        _fp = TaskFingerprintService().extract(
+            message or "", domain=getattr(task, "domain", "general") or "general"
+        )
+        _final_mode = mode  # 初始为 baseline
+        _shadow_policies = []
+
         try:
-            _fp = TaskFingerprintService().extract(
-                message or "", domain=getattr(task, "domain", "general") or "general"
-            )
             async with SessionLocal() as _ep_db:
-                _history = await EpisodeStore(_ep_db).get_domain_mode_stats(_fp.domain, days=30)
-            if _history:
-                logger.info(f"[ModeRouter] Episode历史 domain={_fp.domain} stats={_history}")
+                _ep_store = EpisodeStore(_ep_db)
+                _policy_reg = PolicyRegistry(_ep_db)
+
+                # 1. 查历史 Episode 各模式成功率
+                _history = await _ep_store.get_domain_mode_stats(_fp.domain, days=30)
+
+                # 2. 查 active policy，看有无模式建议
+                _active_policies = await _policy_reg.get_active(
+                    domain=_fp.domain, category="mode_selection"
+                )
+                # 3. 查 shadow policy（旁路预测用）
+                _shadow_policies = await _policy_reg.get_shadow(
+                    domain=_fp.domain, category="mode_selection"
+                )
+
+            # 4. 决策：历史成功率差 > 20% 且样本 ≥ 5 时覆盖 baseline
+            _baseline_rate = _history.get(
+                _final_mode.value if hasattr(_final_mode, "value") else str(_final_mode), {}
+            ).get("success_rate", 0.0)
+
+            for _hist_mode, _stats in _history.items():
+                _rate = _stats.get("success_rate", 0.0)
+                _samples = _stats.get("sample_count", 0)
+                if (
+                    _rate - _baseline_rate > _HISTORY_OVERRIDE_THRESHOLD
+                    and _samples >= _HISTORY_MIN_SAMPLES
+                ):
+                    try:
+                        _new_mode = ExecutionMode(_hist_mode)
+                        logger.info(
+                            f"[ModeRouter] 历史覆盖: {_final_mode} → {_new_mode} "
+                            f"（成功率差={_rate-_baseline_rate:.0%}, 样本={_samples}）"
+                        )
+                        _final_mode = _new_mode
+                        _baseline_rate = _rate
+                    except ValueError:
+                        pass  # 未知模式，跳过
+
+            if _final_mode != mode:
+                # 更新 task.exec_mode
+                from greyfield_hive.services.task_service import TaskService as _TS
+                async with SessionLocal() as _upd_db:
+                    await _TS(_upd_db).update_exec_mode(task_id, _final_mode.value)
+                    await _upd_db.commit()
+                mode = _final_mode
+
+            logger.debug(
+                f"[ModeRouter] domain={_fp.domain} history={_history} "
+                f"active_policies={len(_active_policies)} final_mode={mode}"
+            )
+
         except Exception as _e:
-            logger.debug(f"[ModeRouter] Episode 历史查询失败（不影响路由）: {_e}")
+            logger.debug(f"[ModeRouter] Phase2 历史决策失败（fallback baseline）: {_e}")
         if task.state == TaskState.Spawning:
             task = await svc.transition(task_id, TaskState.Executing, agent="mode-router", reason="进入执行态")
             trace_id = task.trace_id
@@ -122,6 +180,27 @@ class ModeRouter:
             stage="execution",
             payload={"mode": mode.value if hasattr(mode, "value") else str(mode), "success": success},
         )
+
+        # Phase 2: shadow policy 旁路预测记录
+        if _shadow_policies:
+            _actual_mode = mode.value if hasattr(mode, "value") else str(mode)
+            try:
+                async with SessionLocal() as _sh_db:
+                    _sh_eval = ShadowEvaluator(_sh_db)
+                    for _sp in _shadow_policies:
+                        _sp_mode = (_sp.rule_logic or {}).get("prefer_mode", "")
+                        if _sp_mode:
+                            await _sh_eval.record_prediction(
+                                _sp.id, task_id,
+                                predicted_mode=_sp_mode,
+                                actual_mode=_actual_mode,
+                                actual_outcome="success" if success else "failure",
+                            )
+                    # 检查是否有 shadow 可以激活
+                    await _sh_eval.evaluate_all_shadows(domain=_fp.domain)
+                    await _sh_db.commit()
+            except Exception as _e:
+                logger.debug(f"[ModeRouter] shadow 记录失败: {_e}")
 
     async def _route_solo(self, task, trace_id: str, success_state: TaskState) -> None:
         """Solo: 派发给 assignee_synapse 或默认 code-expert，执行后推进到 Executing"""

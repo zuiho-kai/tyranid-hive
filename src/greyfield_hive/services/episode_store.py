@@ -174,11 +174,32 @@ class EpisodeStore:
         domain: str,
         days: int = 30,
     ) -> dict[str, dict]:
-        """获取某域各模式的统计摘要（供 mode_router 附加到 task.meta）。"""
+        """获取某域各模式的统计摘要（供 mode_router 决策用）。
+
+        返回格式：{mode: {"success_rate": float, "sample_count": int, "days": int}}
+        """
         modes = ["solo", "trial", "chain", "swarm"]
         stats: dict[str, dict] = {}
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         for mode in modes:
-            rate = await self.get_mode_success_rate(domain, mode, days)
-            if rate > 0:
-                stats[mode] = {"success_rate": rate, "days": days}
+            try:
+                result = await self._db.execute(
+                    select(Episode).where(
+                        Episode.created_at >= cutoff,
+                        Episode.chosen_mode == mode,
+                        Episode.fingerprint["domain"].as_string() == domain,
+                        Episode.finished_at.isnot(None),
+                    )
+                )
+                episodes = result.scalars().all()
+                if not episodes:
+                    continue
+                success = sum(1 for e in episodes if e.outcome == "success")
+                stats[mode] = {
+                    "success_rate": round(success / len(episodes), 3),
+                    "sample_count": len(episodes),
+                    "days": days,
+                }
+            except Exception:
+                pass
         return stats
