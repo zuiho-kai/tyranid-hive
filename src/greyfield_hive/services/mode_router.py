@@ -16,6 +16,7 @@ from greyfield_hive.services.episode_store import EpisodeStore
 from greyfield_hive.services.task_fingerprint import TaskFingerprintService
 from greyfield_hive.services.policy_registry import PolicyRegistry
 from greyfield_hive.services.shadow_evaluator import ShadowEvaluator
+from greyfield_hive.services.skill_registry import SkillRegistry
 from greyfield_hive.services.event_bus import get_event_bus, TOPIC_TASK_DISPATCH
 from greyfield_hive.services.execution_events import publish_stage_event, publish_task_event
 
@@ -44,10 +45,28 @@ class ModeRouter:
         success_state = self._success_state(meta)
         logger.info(f"[ModeRouter] {task_id} exec_mode={mode.value if hasattr(mode, 'value') else mode}")
 
-        # Phase 2: 历史权重 + active policy 介入决策
+        # Phase 3: Skill 优先匹配 — 有成熟器官就用器官
         _fp = TaskFingerprintService().extract(
             message or "", domain=getattr(task, "domain", "general") or "general"
         )
+        _matched_skill = None
+        try:
+            async with SessionLocal() as _sk_db:
+                _matched_skill = await SkillRegistry(_sk_db).match_skill(_fp)
+            if _matched_skill:
+                logger.info(
+                    f"[ModeRouter] Skill 匹配: {_matched_skill.slug} "
+                    f"rate={_matched_skill.success_rate:.0%} uses={_matched_skill.total_uses}"
+                )
+                # 用器官的 preferred_mode 覆盖
+                try:
+                    mode = ExecutionMode(_matched_skill.preferred_mode)
+                except ValueError:
+                    pass
+        except Exception as _e:
+            logger.debug(f"[ModeRouter] Skill 匹配失败: {_e}")
+
+        # Phase 2: 历史权重 + active policy 介入决策（_fp 已在 Phase 3 Skill 匹配时提取）
         _final_mode = mode  # 初始为 baseline
         _shadow_policies = []
 

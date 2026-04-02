@@ -27,6 +27,8 @@ from greyfield_hive.services.lessons_bank import LessonsBank
 from greyfield_hive.services.playbook_service import PlaybookService
 from greyfield_hive.services.episode_store import EpisodeStore
 from greyfield_hive.services.policy_registry import PolicyRegistry
+from greyfield_hive.services.organ_crystallizer import OrganCrystallizer
+from greyfield_hive.services.semantic_auditor import SemanticAuditor
 
 
 @dataclass
@@ -62,6 +64,8 @@ class EvolutionMasterService:
         self._pb_svc = PlaybookService(db)
         self._ep_store = EpisodeStore(db)
         self._policy_reg = PolicyRegistry(db)
+        self._crystallizer = OrganCrystallizer(db)
+        self._auditor = SemanticAuditor(db)
 
     # ── 公开接口 ──────────────────────────────────────────
 
@@ -74,6 +78,28 @@ class EvolutionMasterService:
             if result is not None:
                 results.append(result)
         logger.info(f"[EvolutionMaster] 全域扫描完成，进化 {len(results)} 个域")
+
+        # Phase 3: 器官结晶（从高频稳定模式自动生成 Skill）
+        try:
+            new_organs = await self._crystallizer.scan_and_crystallize(days=60)
+            if new_organs:
+                logger.info(f"[EvolutionMaster] 结晶 {len(new_organs)} 个器官: {new_organs}")
+        except Exception as _e:
+            logger.warning(f"[EvolutionMaster] 器官结晶失败: {_e}")
+
+        # Phase 3: Playbook 语义审计
+        try:
+            report = await self._auditor.audit()
+            if report.has_issues:
+                logger.info(
+                    f"[EvolutionMaster] Playbook审计: "
+                    f"冗余={len(report.redundant_pairs)} "
+                    f"孤岛={len(report.orphan_entries)} "
+                    f"模糊={len(report.fuzzy_boundaries)}"
+                )
+        except Exception as _e:
+            logger.warning(f"[EvolutionMaster] 语义审计失败: {_e}")
+
         return results
 
     async def evolve_domain(self, domain: str) -> Optional[EvolveResult]:
