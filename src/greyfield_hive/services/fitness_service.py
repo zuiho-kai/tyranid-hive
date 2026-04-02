@@ -161,6 +161,55 @@ class FitnessService:
         logger.debug(f"[Fitness] 战功入库 synapse={synapse_id} success={success} marks={len(marks)}")
         return marks
 
+    async def record_step_cost(
+        self,
+        synapse_id:      str,
+        task_id:         Optional[str],
+        domain:          str,
+        episode_id:      Optional[str] = None,
+        episode_step_id: Optional[str] = None,
+        token_count:     int = 0,
+        wall_time:       float = 0.0,
+    ) -> list[KillMark]:
+        """按 step 粒度记录执行成本（Phase 1 新增）。
+
+        token_cost   → drain_category=execution
+        wall_time 过长（>60s）→ 额外 coordination 惩罚
+        """
+        marks: list[KillMark] = []
+
+        if token_count > 0:
+            token_drain = min(token_count / 1000 * 0.1, 2.0)
+            km = KillMark(
+                synapse_id=synapse_id, task_id=task_id, domain=domain,
+                mark_type="step_token_cost", weight=0.1, score=token_count / 1000,
+                biomass_delta=-token_drain,
+                episode_id=episode_id, episode_step_id=episode_step_id,
+                drain_category="execution",
+            )
+            self._db.add(km)
+            marks.append(km)
+
+        if wall_time > 60:
+            coord_drain = min((wall_time - 60) / 60 * 0.05, 0.5)
+            km = KillMark(
+                synapse_id=synapse_id, task_id=task_id, domain=domain,
+                mark_type="step_overtime", weight=0.05, score=wall_time / 60,
+                biomass_delta=-coord_drain,
+                episode_id=episode_id, episode_step_id=episode_step_id,
+                drain_category="coordination",
+            )
+            self._db.add(km)
+            marks.append(km)
+
+        if marks:
+            await self._db.flush()
+            logger.debug(
+                f"[Fitness] step_cost episode={episode_id} synapse={synapse_id} "
+                f"tokens={token_count} wall={wall_time:.1f}s marks={len(marks)}"
+            )
+        return marks
+
     async def record_drain(
         self,
         synapse_id:   str,

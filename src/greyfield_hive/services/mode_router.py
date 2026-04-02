@@ -10,7 +10,10 @@ from __future__ import annotations
 
 from loguru import logger
 
+from greyfield_hive.db import SessionLocal
 from greyfield_hive.models.task import ExecutionMode, TaskState
+from greyfield_hive.services.episode_store import EpisodeStore
+from greyfield_hive.services.task_fingerprint import TaskFingerprintService
 from greyfield_hive.services.event_bus import get_event_bus, TOPIC_TASK_DISPATCH
 from greyfield_hive.services.execution_events import publish_stage_event, publish_task_event
 
@@ -33,6 +36,18 @@ class ModeRouter:
         meta = task.meta or {}
         success_state = self._success_state(meta)
         logger.info(f"[ModeRouter] {task_id} exec_mode={mode.value if hasattr(mode, 'value') else mode}")
+
+        # Phase 1: 查询历史 Episode 统计，记录日志作为辅助参考（不改变路由决策）
+        try:
+            _fp = TaskFingerprintService().extract(
+                message or "", domain=getattr(task, "domain", "general") or "general"
+            )
+            async with SessionLocal() as _ep_db:
+                _history = await EpisodeStore(_ep_db).get_domain_mode_stats(_fp.domain, days=30)
+            if _history:
+                logger.info(f"[ModeRouter] Episode历史 domain={_fp.domain} stats={_history}")
+        except Exception as _e:
+            logger.debug(f"[ModeRouter] Episode 历史查询失败（不影响路由）: {_e}")
         if task.state == TaskState.Spawning:
             task = await svc.transition(task_id, TaskState.Executing, agent="mode-router", reason="进入执行态")
             trace_id = task.trace_id

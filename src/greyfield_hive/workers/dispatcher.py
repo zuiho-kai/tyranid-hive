@@ -37,6 +37,8 @@ from greyfield_hive.services.fitness_service import FitnessService
 from greyfield_hive.services.gene_loader import get_gene_loader
 from greyfield_hive.services.task_service import TaskService, InvalidTransitionError
 from greyfield_hive.models.task import TaskState
+from greyfield_hive.services.episode_store import EpisodeStore
+from greyfield_hive.services.task_fingerprint import TaskFingerprintService
 
 
 # ── 小主脑元数据（人类可读）────────────────────────────────
@@ -338,7 +340,54 @@ class DispatchWorker:
                 stage=synapse,
                 payload={"synapse": synapse, "message": message[:200]},
             )
+
+            # ── Phase 1: Episode 记录（异步，不阻塞主执行路径）────────────────
+            _fp_svc = TaskFingerprintService()
+            _fingerprint = _fp_svc.extract(message, domain=domain)
+            _episode_id: str | None = None
+            try:
+                async with SessionLocal() as _ep_db:
+                    _ep_store = EpisodeStore(_ep_db)
+                    _ep = await _ep_store.begin_episode(
+                        task_id=task_id or "unknown",
+                        fingerprint=_fingerprint,
+                        chosen_mode=domain,
+                        justification=f"synapse={synapse}",
+                    )
+                    _episode_id = _ep.id
+                    await _ep_db.commit()
+            except Exception as _ep_err:
+                logger.warning(f"[Dispatcher] Episode begin 失败（不影响执行）: {_ep_err}")
+
+            import time as _time
+            _t0 = _time.monotonic()
             result = await self._invoke_agent(synapse, enriched_message, task_id, trace_id)
+            _wall = round(_time.monotonic() - _t0, 3)
+
+            # 写入 EpisodeStep
+            if _episode_id:
+                _success = _infer_success(result)
+                _stdout_len = len(result.get("stdout") or "")
+                try:
+                    async with SessionLocal() as _ep_db:
+                        _ep_store = EpisodeStore(_ep_db)
+                        await _ep_store.record_step(
+                            _episode_id,
+                            actor=synapse,
+                            action_type=stage_kind,
+                            token_cost=_stdout_len // 4,   # 粗估：4 字符 ≈ 1 token
+                            wall_time=_wall,
+                            outcome="success" if _success else "failure",
+                            error_class=None if _success else "strategy",
+                        )
+                        await _ep_store.finish_episode(
+                            _episode_id,
+                            outcome="success" if _success else "failure",
+                        )
+                        await _ep_db.commit()
+                except Exception as _ep_err:
+                    logger.warning(f"[Dispatcher] Episode step 写入失败（不影响执行）: {_ep_err}")
+            # ── Episode 记录结束 ─────────────────────────────────────────────
 
             await publish_task_event(
                 self.bus,
