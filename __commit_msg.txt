@@ -1,21 +1,22 @@
-feat(phase3): 格式塔合成 Gestalt Synthesis — 器官结晶 + 世界模型 + 语义审计
+fix: 补全 NEXT_STEPS 五个缺口 — 进化闭环可自运转
 
-系统现在能从高频稳定模式中自动长出器官。
+N-2 (bug): OrganCrystallizer 全域查询修复
+  - EpisodeStore.query_all() 新方法（不传 domain 过滤，真正查全部）
+  - EpisodeStore.query_by_task() 新方法（任务连续失败检测用）
+  - OrganCrystallizer 改用 query_all，不再传空字符串
 
-新增 5 个文件：
-- models/skill.py：Skill 器官实体（incubating→active→degrading→retired）
-- services/skill_registry.py：器官注册、指纹匹配、使用统计、退化检测
-- services/organ_crystallizer.py：扫描 Episode，满足结晶条件自动生成 Skill
-- services/world_model.py：极简世界模型（goal_tree/facts/questions/resources）
-- services/semantic_auditor.py：Playbook 语义聚类审计（冗余/孤岛/模糊边界）
+N-1 (调度): _evolution_loop 定时任务
+  - main.py 新增 _evolution_loop 协程（默认 10 分钟间隔，可 HIVE_EVOLUTION_INTERVAL 配置）
+  - 每轮：scan_and_evolve + policy decay/retire + skill retire
 
-改动 4 个文件：
-- evolution_master.py：scan_and_evolve 接入 crystallizer + auditor
-- mode_router.py：Skill 优先匹配（有器官就用器官）
-- models/__init__.py：导出 Skill, SkillState
-- db.py：compat schema 补 skills 表
+N-3 (接入): WorldModel 进入执行流
+  - dispatcher._build_enriched_message 末尾追加世界模型摘要
+  - overmind 分析完成后自动更新 goal_tree 和 open_questions
 
-结晶条件：同域同模式≥20次 + 成功率>80% + token低于全域平均80%
-路由优先级：Skill匹配 > 历史覆盖 > baseline
+N-4 (精度): Policy 命中逻辑升级
+  - PolicyHitTracker 新增 trigger_conditions 评估器
+  - _eval_conditions 支持 8 类结构化条件（多路径/线性依赖/失败率等）
 
-验收：SkillRegistry + OrganCrystallizer + WorldModel + SemanticAuditor E2E 通过
+N-5 (选人): Submind 按净值选人
+  - mode_router._route_trial 先查 FitnessService 排行榜
+  - 同域净值最高的两个 synapse 优先参赛，固定 fallback 保底

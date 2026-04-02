@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -46,6 +47,46 @@ _stall_detector:  StallDetector | None      = None
 _bg_tasks: list[asyncio.Task] = []
 
 
+async def _evolution_loop() -> None:
+    """进化循环 —— 每 10 分钟运行一次进化、衰减和退役。
+
+    职责：
+      - scan_and_evolve()：Reflect + Distill + 器官结晶 + 语义审计
+      - decay_stale()：超期未命中的 policy → decaying
+      - retire_decaying()：持续衰减的 policy → retired
+      - retire_degrading()：成功率跌破阈值的 skill → retired
+    """
+    from greyfield_hive.services.evolution_master import EvolutionMasterService
+    from greyfield_hive.services.policy_hit_tracker import PolicyHitTracker
+    from greyfield_hive.services.skill_registry import SkillRegistry
+
+    INTERVAL = int(os.environ.get("HIVE_EVOLUTION_INTERVAL", "600"))  # 默认 10 分钟
+
+    while True:
+        await asyncio.sleep(INTERVAL)
+        try:
+            async with SessionLocal() as db:
+                # 1. 进化大师全域扫描（含器官结晶 + 语义审计）
+                results = await EvolutionMasterService(db).scan_and_evolve()
+                logger.info(f"[EvolutionLoop] 进化完成，{len(results)} 个域更新")
+
+                # 2. 策略衰减 / 退役
+                tracker = PolicyHitTracker(db)
+                decayed = await tracker.decay_stale(days_threshold=14)
+                retired = await tracker.retire_decaying(days_threshold=14)
+                if decayed or retired:
+                    logger.info(f"[EvolutionLoop] 策略衰减={decayed} 退役={retired}")
+
+                # 3. 器官退役
+                skill_retired = await SkillRegistry(db).retire_degrading(min_days=14)
+                if skill_retired:
+                    logger.info(f"[EvolutionLoop] 器官退役={skill_retired}")
+
+                await db.commit()
+        except Exception as e:
+            logger.warning(f"[EvolutionLoop] 本轮异常（下轮继续）: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _orchestrator, _dispatcher, _stall_detector
@@ -74,7 +115,8 @@ async def lifespan(app: FastAPI):
     _bg_tasks.append(asyncio.create_task(_orchestrator.start(),   name="orchestrator"))
     _bg_tasks.append(asyncio.create_task(_dispatcher.start(),     name="dispatcher"))
     _bg_tasks.append(asyncio.create_task(_stall_detector.start(), name="stall_detector"))
-    logger.info("✅ 编排器 + 派发器 + 停滞检测器已启动")
+    _bg_tasks.append(asyncio.create_task(_evolution_loop(),        name="evolution-loop"))
+    logger.info("✅ 编排器 + 派发器 + 停滞检测器 + 进化循环已启动")
 
     yield
 

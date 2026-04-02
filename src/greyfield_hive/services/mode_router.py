@@ -261,12 +261,31 @@ class ModeRouter:
 
     async def _route_trial(self, task_id: str, message: str,
                            meta: dict, trace_id: str) -> bool:
-        """Trial: 双路赛马"""
+        """Trial: 双路赛马 —— N-5: 优先按净值选人"""
         from greyfield_hive.services.trial_race import TrialRaceService
-        candidates = meta.get("trial_candidates", ["code-expert", "research-analyst"])
-        synapse_a = candidates[0] if candidates else "code-expert"
-        synapse_b = candidates[1] if len(candidates) > 1 else "research-analyst"
-        logger.info(f"[ModeRouter] Trial → {synapse_a} vs {synapse_b}")
+        from greyfield_hive.services.fitness_service import FitnessService
+
+        # 按域净值选最高的两个 synapse
+        domain = meta.get("domain", "general")
+        fallback_a = "code-expert"
+        fallback_b = "research-analyst"
+        try:
+            leaderboard = await FitnessService(self._db).get_leaderboard(limit=10)
+            # 过滤：优先同域，再看 general
+            domain_scores = [s for s in leaderboard
+                             if domain in s.synapse_id or "general" in s.synapse_id]
+            if len(domain_scores) >= 2:
+                fallback_a = domain_scores[0].synapse_id
+                fallback_b = domain_scores[1].synapse_id
+            elif len(domain_scores) == 1:
+                fallback_a = domain_scores[0].synapse_id
+        except Exception:
+            pass
+
+        candidates = meta.get("trial_candidates", [fallback_a, fallback_b])
+        synapse_a = candidates[0] if candidates else fallback_a
+        synapse_b = candidates[1] if len(candidates) > 1 else fallback_b
+        logger.info(f"[ModeRouter] Trial → {synapse_a}(净值优先) vs {synapse_b}")
         svc = TrialRaceService(self._db)
         result = await svc.run(task_id=task_id, synapse_a=synapse_a,
                                synapse_b=synapse_b, message=message, trace_id=trace_id)
