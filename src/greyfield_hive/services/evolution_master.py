@@ -26,6 +26,7 @@ from greyfield_hive.models.episode import Episode, EpisodeStep
 from greyfield_hive.services.lessons_bank import LessonsBank
 from greyfield_hive.services.playbook_service import PlaybookService
 from greyfield_hive.services.episode_store import EpisodeStore
+from greyfield_hive.services.policy_registry import PolicyRegistry
 
 
 @dataclass
@@ -59,6 +60,8 @@ class EvolutionMasterService:
         self._db = db
         self._bank = LessonsBank(db)
         self._pb_svc = PlaybookService(db)
+        self._ep_store = EpisodeStore(db)
+        self._policy_reg = PolicyRegistry(db)
 
     # ── 公开接口 ──────────────────────────────────────────
 
@@ -80,10 +83,13 @@ class EvolutionMasterService:
             logger.debug(f"[EvolutionMaster] {domain} 成功经验 {len(success_lessons)} 条，未达阈值，跳过")
             return None
 
-        # Phase 1: Reflect
+        # Phase 1: Reflect（接入 EpisodeStore）
         reflect = await self._reflect(domain, success_lessons)
 
-        # Phase 2: Write
+        # Phase 2 新增: 从 Episode 统计蒸馏 candidate policy
+        await self._distill_mode_policy(domain)
+
+        # Phase 2: Write Playbook（保留原逻辑）
         top_lessons = reflect.top_lessons[:10]
         content = self._synthesize(domain, top_lessons, reflect)
         slug = f"evolved-{domain}"
@@ -147,6 +153,63 @@ class EvolutionMasterService:
         ]
 
     # ── 私有方法 ──────────────────────────────────────────
+
+    async def _distill_mode_policy(self, domain: str) -> None:
+        """Phase 2: 从 Episode 统计中蒸馏 candidate mode_selection policy。
+
+        规则：某模式在该域成功率比 solo 高 20% 且样本 ≥ 5 → 生成 candidate。
+        幂等：slug 已存在则跳过。
+        """
+        try:
+            episodes = await self._ep_store.query_by_domain(domain, days=30)
+            if len(episodes) < 5:
+                return
+
+            # 按模式统计
+            mode_stats: dict[str, dict] = {}
+            for ep in episodes:
+                if not ep.chosen_mode or not ep.outcome:
+                    continue
+                s = mode_stats.setdefault(ep.chosen_mode, {"total": 0, "success": 0})
+                s["total"] += 1
+                if ep.outcome == "success":
+                    s["success"] += 1
+
+            solo_total = mode_stats.get("solo", {}).get("total", 0)
+            solo_rate = (
+                mode_stats.get("solo", {}).get("success", 0) / solo_total
+                if solo_total > 0 else 0.0
+            )
+
+            for mode, stats in mode_stats.items():
+                if mode == "solo" or stats["total"] < 5:
+                    continue
+                rate = stats["success"] / stats["total"]
+                if rate - solo_rate > 0.20:
+                    slug = f"prefer-{mode}-in-{domain}"
+                    await self._policy_reg.create(
+                        slug=slug,
+                        content=(
+                            f"在 {domain} 域，{mode} 模式成功率 {rate:.0%}，"
+                            f"高于 solo {solo_rate:.0%}（差距 {rate-solo_rate:.0%}，"
+                            f"样本 {stats['total']} 次）"
+                        ),
+                        domain=domain,
+                        category="mode_selection",
+                        rule_logic={
+                            "prefer_mode": mode,
+                            "min_advantage": round(rate - solo_rate, 3),
+                            "sample_count": stats["total"],
+                        },
+                        source="distilled",
+                    )
+                    # candidate → shadow（立即进入旁路评估）
+                    p = await self._policy_reg.get_by_slug(slug)
+                    if p and p.state.value == "candidate":
+                        await self._policy_reg.promote_to_shadow(p.id)
+                        logger.info(f"[EvolutionMaster] 蒸馏 shadow: {slug}")
+        except Exception as e:
+            logger.warning(f"[EvolutionMaster] _distill_mode_policy 失败（不影响进化）: {e}")
 
     async def _reflect(self, domain: str, lessons: List[Lesson]) -> ReflectResult:
         """Phase 1 Reflect：诊断失败模式，语义聚类（Phase 1 增强：接入 EpisodeStore）"""

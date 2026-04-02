@@ -7,6 +7,7 @@ from greyfield_hive.models.lifeform import Lifeform, LifeformKind, LifeformState
 from greyfield_hive.models.assignment import Assignment, AssignmentStatus
 from greyfield_hive.models.handoff import Handoff
 from greyfield_hive.models.episode import Episode, EpisodeStep
+from greyfield_hive.models.policy import Policy, PolicyState
 
 __all__ = [
     "Task", "TaskState", "STATE_TRANSITIONS", "TERMINAL_STATES",
@@ -16,4 +17,5 @@ __all__ = [
     "Assignment", "AssignmentStatus",
     "Handoff",
     "Episode", "EpisodeStep",
+    "Policy", "PolicyState",
 ]

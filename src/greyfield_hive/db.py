@@ -101,6 +101,33 @@ def _bootstrap_compat_schema(sync_conn) -> None:
         sync_conn.execute(text("CREATE INDEX IF NOT EXISTS ix_tasks_current_owner_lifeform_id ON tasks (current_owner_lifeform_id)"))
 
     # Phase 1 — Episode / EpisodeStep 表（新 DB 由 create_all 建，旧 DB 在此补）
+    # Phase 2 — policies 表（由 create_all 建；旧 DB 在此补）
+    if "policies" not in inspector.get_table_names():
+        sync_conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS policies (
+                id TEXT PRIMARY KEY,
+                slug TEXT UNIQUE NOT NULL,
+                domain TEXT DEFAULT 'general',
+                category TEXT DEFAULT 'mode_selection',
+                state TEXT DEFAULT 'candidate',
+                content TEXT DEFAULT '',
+                rule_logic TEXT,
+                hit_count INTEGER DEFAULT 0,
+                hit_success INTEGER DEFAULT 0,
+                hit_fail INTEGER DEFAULT 0,
+                shadow_predictions INTEGER DEFAULT 0,
+                shadow_correct INTEGER DEFAULT 0,
+                created_at TIMESTAMP,
+                last_hit_at TIMESTAMP,
+                activated_at TIMESTAMP,
+                retired_at TIMESTAMP,
+                source TEXT DEFAULT 'seed'
+            )
+        """))
+        sync_conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_policies_domain_state ON policies (domain, state)"
+        ))
+
     # Phase 1 — Episode / EpisodeStep 由 create_all 建表和索引。
     # _bootstrap_compat_schema 只在表不存在时补 kill_marks 的新字段。
     if "kill_marks" in inspector.get_table_names():

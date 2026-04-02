@@ -1,0 +1,148 @@
+# Policy 初始种子
+# 从 CLAUDE.md [HEURISTIC] 标记内容和 README 执行模式触发条件提取
+# source: seed, state: active（直接生效，作为 baseline 兜底）
+#
+# 格式：
+#   slug:       唯一标识
+#   domain:     general / coding / devops / research / finance
+#   category:   mode_selection / gene_injection / gate
+#   state:      active / candidate
+#   content:    自然语言描述
+#   rule_logic: 结构化规则（可选）
+
+policies:
+
+  # ── 执行模式选择策略（从 README 触发条件提取）──────────────────────────────
+
+  - slug: trial-when-multiple-paths
+    domain: general
+    category: mode_selection
+    state: active
+    content: >
+      当任务存在多条独立可行路径，且结果可客观比较时，选择 Trial 赛马模式。
+      赛前必须先做 ~500 token 的快速推理，推理能解决就不开赛。
+    rule_logic:
+      prefer_mode: trial
+      trigger_conditions:
+        - multiple_viable_paths
+        - objectively_comparable_results
+
+  - slug: chain-when-linear-dependency
+    domain: general
+    category: mode_selection
+    state: active
+    content: >
+      当子任务之间存在严格线性依赖（P1→P2→P3），必须串行时，选择 Chain 模式。
+      每阶段传改动摘要而非完整上下文。
+    rule_logic:
+      prefer_mode: chain
+      trigger_conditions:
+        - linear_dependency
+        - sequential_required
+
+  - slug: swarm-when-fully-independent
+    domain: general
+    category: mode_selection
+    state: active
+    content: >
+      当子任务完全独立、无状态依赖时，选择 Swarm 并发模式。
+    rule_logic:
+      prefer_mode: swarm
+      trigger_conditions:
+        - fully_independent_subtasks
+
+  - slug: solo-for-simple-tasks
+    domain: general
+    category: mode_selection
+    state: active
+    content: >
+      单文件任务、顺序工具链、日常问答，默认走 Solo 模式，不升级多 Agent。
+    rule_logic:
+      prefer_mode: solo
+      trigger_conditions:
+        - single_file
+        - sequential_tool_chain
+        - daily_qa
+
+  - slug: trial-when-high-failure-rate
+    domain: general
+    category: mode_selection
+    state: active
+    content: >
+      同域近 7 天失败率 > 30%，且满足其他 Trial 触发条件时，强制开赛马。
+    rule_logic:
+      prefer_mode: trial
+      trigger_conditions:
+        - domain_fail_rate_gt_30_pct
+
+  # ── 编码域特定策略 ──────────────────────────────────────────────────────────
+
+  - slug: chain-for-multi-file-refactor
+    domain: coding
+    category: mode_selection
+    state: active
+    content: >
+      多文件重构任务（涉及 3+ 文件，有线性依赖），走 Chain 模式。
+      每阶段传改动摘要，不传完整代码。
+    rule_logic:
+      prefer_mode: chain
+      min_files: 3
+
+  - slug: trial-for-browser-scraping
+    domain: coding
+    category: mode_selection
+    state: candidate
+    content: >
+      涉及浏览器/爬虫的任务历史失败率高，建议开 Trial 双路（requests vs playwright）。
+    rule_logic:
+      prefer_mode: trial
+      trigger_keywords:
+        - browser
+        - playwright
+        - scrape
+        - 爬虫
+
+  # ── 基因注入策略 ──────────────────────────────────────────────────────────
+
+  - slug: inject-lessons-before-execution
+    domain: general
+    category: gene_injection
+    state: active
+    content: >
+      执行前必须注入最近相关 Lessons（top-5）和 Playbook（top-3）。
+      不注入直接执行视为流程违规。
+    rule_logic:
+      inject_lessons: 5
+      inject_playbooks: 3
+
+  - slug: inject-constitution-always
+    domain: general
+    category: gene_injection
+    state: active
+    content: >
+      宪法层（安全规则、编码约束）必须直灌 prompt，强制注入，不可跳过。
+    rule_logic:
+      inject_constitution: true
+      can_skip: false
+
+  # ── 门禁策略（结构化表达，Phase 2 逐步替代声明式门禁）──────────────────────
+
+  - slug: gate-high-failure-warning
+    domain: general
+    category: gate
+    state: active
+    content: >
+      任务入口查询历史 Episode：同类任务失败率 > 50% 时，输出 WARNING 并建议换路径。
+    rule_logic:
+      trigger: historical_fail_rate_gt_50
+      action: log_warning
+
+  - slug: gate-fix-streak-alert
+    domain: general
+    category: gate
+    state: active
+    content: >
+      同一任务连续 3 次失败（Episode outcome=failure），自动建议换完全不同的技术路径。
+    rule_logic:
+      trigger: consecutive_failures_gte_3
+      action: suggest_pivot

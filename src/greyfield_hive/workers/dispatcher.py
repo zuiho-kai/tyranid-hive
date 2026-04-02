@@ -39,6 +39,8 @@ from greyfield_hive.services.task_service import TaskService, InvalidTransitionE
 from greyfield_hive.models.task import TaskState
 from greyfield_hive.services.episode_store import EpisodeStore
 from greyfield_hive.services.task_fingerprint import TaskFingerprintService
+from greyfield_hive.services.credit_assignment import HeuristicCreditAssignment
+from greyfield_hive.services.policy_hit_tracker import PolicyHitTracker
 
 
 # ── 小主脑元数据（人类可读）────────────────────────────────
@@ -359,6 +361,36 @@ class DispatchWorker:
             except Exception as _ep_err:
                 logger.warning(f"[Dispatcher] Episode begin 失败（不影响执行）: {_ep_err}")
 
+            # ── Phase 2: 门禁查询化 ──────────────────────────────────────────
+            # 自动查询历史：失败率 > 50% 拉警报，连续 3 次失败建议换路径
+            if task_id and _fingerprint:
+                try:
+                    async with SessionLocal() as _gate_db:
+                        _gate_ep = EpisodeStore(_gate_db)
+                        # 查该域历史
+                        _domain_eps = await _gate_ep.query_by_domain(
+                            _fingerprint.domain, days=7
+                        )
+                        if _domain_eps:
+                            _fail_count = sum(1 for e in _domain_eps if e.outcome == "failure")
+                            _fail_rate = _fail_count / len(_domain_eps)
+                            if _fail_rate > 0.5:
+                                logger.warning(
+                                    f"[Gateway] 高风险任务：domain={_fingerprint.domain} "
+                                    f"近7天失败率={_fail_rate:.0%}({_fail_count}/{len(_domain_eps)})"
+                                )
+                        # 查同一 task 的连续失败次数
+                        _task_eps = [e for e in _domain_eps if e.task_id == task_id]
+                        _fail_streak = sum(1 for e in _task_eps if e.outcome == "failure")
+                        if _fail_streak >= 3:
+                            logger.error(
+                                f"[Gateway] 连续 {_fail_streak} 次失败 task={task_id}，"
+                                f"建议换完全不同的技术路径"
+                            )
+                except Exception as _gate_err:
+                    logger.debug(f"[Dispatcher] 门禁查询失败（不影响执行）: {_gate_err}")
+            # ── 门禁查询结束 ─────────────────────────────────────────────────
+
             import time as _time
             _t0 = _time.monotonic()
             result = await self._invoke_agent(synapse, enriched_message, task_id, trace_id)
@@ -387,6 +419,23 @@ class DispatchWorker:
                         await _ep_db.commit()
                 except Exception as _ep_err:
                     logger.warning(f"[Dispatcher] Episode step 写入失败（不影响执行）: {_ep_err}")
+            # ── Phase 2: 贡献分账 + policy 命中追踪 ──────────────────────────
+            if _episode_id:
+                _outcome = "success" if _infer_success(result) else "failure"
+                try:
+                    async with SessionLocal() as _ca_db:
+                        await HeuristicCreditAssignment(_ca_db).assign_and_record(
+                            _episode_id, domain=domain, task_id=task_id
+                        )
+                        await PolicyHitTracker(_ca_db).track_hits_for_episode(
+                            domain=domain,
+                            episode_id=_episode_id,
+                            chosen_mode=domain,  # dispatcher 层 mode = synapse domain，简化
+                            outcome=_outcome,
+                        )
+                        await _ca_db.commit()
+                except Exception as _ca_err:
+                    logger.debug(f"[Dispatcher] 分账/命中追踪失败: {_ca_err}")
             # ── Episode 记录结束 ─────────────────────────────────────────────
 
             await publish_task_event(

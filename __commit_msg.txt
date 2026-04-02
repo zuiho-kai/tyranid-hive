@@ -1,0 +1,22 @@
+feat(phase2): 信息素与选择 Stigmergy & Selection — 系统开始用数据做决策
+
+新增 6 个文件：
+- models/policy.py：Policy 实体（candidate→shadow→active→decay→retired 状态机）
+- services/policy_registry.py：策略增删改查 + 生命周期管理 + 自动衰减/退役
+- services/policy_hit_tracker.py：策略命中追踪 + 批量衰减
+- services/shadow_evaluator.py：旁路预测准确率追踪，70%+10次→自动激活
+- services/credit_assignment.py：启发式四规则贡献分账
+- services/policy_seeder.py：启动时从 YAML 灌入初始种子策略（幂等）
+- config/seeds/policy_seeds.yaml：11 条初始策略（模式选择/基因注入/门禁）
+
+改动 6 个文件：
+- services/mode_router.py：历史 Episode 成功率差>20%+样本≥5 时覆盖 baseline；shadow policy 旁路预测记录
+- services/evolution_master.py：evolve_domain 新增 _distill_mode_policy，从 Episode 统计蒸馏 candidate policy
+- services/episode_store.py：get_domain_mode_stats 增加 sample_count 字段
+- workers/dispatcher.py：门禁查询化（失败率>50%警告/连续失败≥3建议换路径）+ 贡献分账 + policy 命中追踪
+- models/__init__.py：导出 Policy, PolicyState
+- db.py：compat schema 补 policies 表
+
+验收：PolicyRegistry + ShadowEvaluator + PolicySeeder E2E 验证通过
+
+refs: docs/specs/phase2-stigmergy-selection.md
